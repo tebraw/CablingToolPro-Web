@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
+
+#outer {
+  position: relative; width: 100%; height: 850px;
+  overflow: hidden; background: #525659;
+  border: 1px solid #333;
+  cursor: grab; user-select: none;
+}
+#outer.dragging { cursor: grabbing; }
+#inner { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+#pdfimg { display: block; max-width: none; box-shadow: 0 2px 14px rgba(0,0,0,0.7); }
+
+#zoomhint {
+  position: absolute; bottom: 8px; right: 10px;
+  color: rgba(255,255,255,0.55); font: 12px/1.4 sans-serif;
+  pointer-events: none;
+}
+
+/* ── Context menu ─────────────────────────────────────────────── */
+#ctx-menu {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  background: #2b2b2b;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 6px 0;
+  min-width: 200px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+  font: 13px "Source Sans Pro", -apple-system, sans-serif;
+  color: #fafafa;
+}
+#ctx-menu.visible { display: block; }
+#ctx-title {
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  color: #888;
+  border-bottom: 1px solid #444;
+  margin-bottom: 4px;
+  user-select: none;
+}
+.ctx-item {
+  padding: 7px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.ctx-item:hover { background: rgba(255,255,255,0.1); }
+.ctx-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="outer">
+  <div id="inner">
+    <img id="pdfimg" draggable="false" src="">
+  </div>
+  <div id="zoomhint">Strg+Mausrad zum Zoomen &nbsp;|&nbsp; Ziehen zum Verschieben &nbsp;|&nbsp; Rechtsklick → Position hinzufügen</div>
+</div>
+
+<!-- Context menu -->
+<div id="ctx-menu">
+  <div id="ctx-title">Position hinzufügen bei…</div>
+  <!-- term items added dynamically -->
+</div>
+
+<script>
+"use strict";
+
+/* ── State ───────────────────────────────────────────────────── */
+var scale = 1, tx = 0, ty = 0;
+var dragging = false, sx = 0, sy = 0, stx = 0, sty = 0;
+var pendingPdfX = 0, pendingPdfY = 0; /* PDF-space coords computed at right-click time */
+var currentZoom = 1.5; /* Python render zoom, updated on every streamlit:render */
+var terms   = [];
+var colors  = ["#ffe066","#7eeaff","#a7ef7e","#ff8cdd","#c89fff"];
+var initialized = false; /* true once we've successfully centered the image */
+
+/* ── Streamlit bridge ────────────────────────────────────────── */
+function sendValue(v) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setComponentValue",
+    value: v,
+    dataType: "json"
+  }, "*");
+}
+function setHeight(h) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setFrameHeight",
+    height: h
+  }, "*");
+}
+
+/* ── DOM refs ────────────────────────────────────────────────── */
+var outer   = document.getElementById("outer");
+var inner   = document.getElementById("inner");
+var img     = document.getElementById("pdfimg");
+var ctxMenu = document.getElementById("ctx-menu");
+
+/* ── Transform ───────────────────────────────────────────────── */
+function apply() {
+  inner.style.transform =
+    "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+}
+
+/* center() returns true if it could measure a real width, false if not ready */
+function center() {
+  var ow = outer.clientWidth, oh = outer.clientHeight;
+  var iw = img.naturalWidth,  ih = img.naturalHeight;
+  if (!ow || !iw || !ih) return false;   /* layout not ready yet */
+  tx = (ow - iw) / 2;
+  ty = Math.max(10, (oh - ih) / 2);
+  apply();
+  return true;
+}
+
+/* Keep retrying via RAF until outer.clientWidth is a real non-zero value.
+   This handles the case where center() is called before Streamlit has given
+   the iframe its final dimensions (outer.clientWidth would be 0). */
+function initCenter() {
+  if (initialized) return;
+  if (center()) {
+    initialized = true;
+  } else {
+    requestAnimationFrame(initCenter);
+  }
+}
+
+/* ── Pan ─────────────────────────────────────────────────────── */
+outer.addEventListener("mousedown", function(e) {
+  if (e.button !== 0) return;
+  dragging = true;
+  sx = e.clientX; sy = e.clientY;
+  stx = tx;       sty = ty;
+  outer.classList.add("dragging");
+  e.preventDefault();
+});
+window.addEventListener("mousemove", function(e) {
+  if (!dragging) return;
+  tx = stx + e.clientX - sx;
+  ty = sty + e.clientY - sy;
+  apply();
+});
+window.addEventListener("mouseup", function() {
+  dragging = false;
+  outer.classList.remove("dragging");
+});
+
+/* ── Ctrl+Wheel zoom ─────────────────────────────────────────── */
+outer.addEventListener("wheel", function(e) {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  var r  = outer.getBoundingClientRect();
+  var mx = e.clientX - r.left - outer.clientLeft;
+  var my = e.clientY - r.top  - outer.clientTop;
+  var factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  var ns = Math.min(Math.max(0.2, scale * factor), 8);
+  tx = mx - (mx - tx) * (ns / scale);
+  ty = my - (my - ty) * (ns / scale);
+  scale = ns;
+  apply();
+}, { passive: false });
+window.addEventListener("wheel", function(e) {
+  if (e.ctrlKey) e.preventDefault();
+}, { passive: false });
+
+/* ── Right-click context menu ────────────────────────────────── */
+outer.addEventListener("contextmenu", function(e) {
+  e.preventDefault();
+  if (!terms.length) return;
+
+  /* Convert screen coords → PDF coordinate space RIGHT NOW, at the moment of
+     the right-click, so nothing can go stale between here and the menu-item
+     click.  All three values (image bounding rect, natural dimensions, zoom)
+     are read from the live DOM/state simultaneously. */
+  var imgRect     = img.getBoundingClientRect();
+  var displayScale = imgRect.width / img.naturalWidth; /* CSS px / natural px */
+  var nat_x = (e.clientX - imgRect.left) / displayScale;
+  var nat_y = (e.clientY - imgRect.top)  / displayScale;
+  var nat_h = img.naturalHeight;
+  /* Formula confirmed for /Rotate-90 pages:
+       pdf_x = (nat_h - nat_y) / zoom
+       pdf_y =  nat_x          / zoom  */
+  pendingPdfX = (nat_h - nat_y) / currentZoom;
+  pendingPdfY =  nat_x          / currentZoom;
+
+  /* Position menu near cursor */
+  var mx = e.clientX, my = e.clientY;
+  ctxMenu.style.left = mx + "px";
+  ctxMenu.style.top  = my + "px";
+  ctxMenu.classList.add("visible");
+
+  /* Keep menu inside viewport */
+  var rect = ctxMenu.getBoundingClientRect();
+  if (rect.right  > window.innerWidth)  ctxMenu.style.left = (mx - rect.width)  + "px";
+  if (rect.bottom > window.innerHeight) ctxMenu.style.top  = (my - rect.height) + "px";
+});
+
+/* Close menu on any outside click */
+window.addEventListener("mousedown", function(e) {
+  if (!ctxMenu.contains(e.target)) closeMenu();
+});
+window.addEventListener("keydown", function(e) {
+  if (e.key === "Escape") closeMenu();
+});
+
+function closeMenu() { ctxMenu.classList.remove("visible"); }
+
+function buildMenu() {
+  /* Remove old term items */
+  var old = ctxMenu.querySelectorAll(".ctx-item");
+  old.forEach(function(el) { el.parentNode.removeChild(el); });
+
+  terms.forEach(function(term, idx) {
+    var item = document.createElement("div");
+    item.className = "ctx-item";
+
+    var dot = document.createElement("span");
+    dot.className = "ctx-dot";
+    dot.style.background = colors[idx % colors.length];
+
+    var label = document.createElement("span");
+    label.textContent = term;
+
+    item.appendChild(dot);
+    item.appendChild(label);
+
+    item.addEventListener("mousedown", function(e) {
+      e.stopPropagation();
+    });
+    item.addEventListener("click", function() {
+      closeMenu();
+      /* pdf_x/pdf_y were computed at right-click time — send them as-is. */
+      sendValue({
+        action:  "add_position",
+        term:    term,
+        pdf_x:   pendingPdfX,
+        pdf_y:   pendingPdfY,
+      });
+    });
+
+    ctxMenu.appendChild(item);
+  });
+}
+
+/* ── Streamlit message bus ───────────────────────────────────── */
+window.addEventListener("message", function(e) {
+  var d = e.data;
+  if (!d || typeof d !== "object") return;
+  if (d.type !== "streamlit:render") return;
+
+  var args = d.args || {};
+  /* Keep currentZoom in sync so contextmenu can use it. */
+  if (typeof args.zoom === "number") currentZoom = args.zoom;
+  var newSrc = "data:image/png;base64," + (args.img_b64 || "");
+
+  if (img.src !== newSrc) {
+    img.src = newSrc;
+    img.onload = function() {
+      /* Auto-center only once — initCenter retries until outer.clientWidth > 0 */
+      if (!initialized) initCenter();
+      setHeight(870);
+    };
+    /* Fallback for immediately-complete images (rare with data URIs, but safe) */
+    if (img.complete && img.naturalWidth && !initialized) {
+      initCenter();
+    }
+  }
+
+  /* Update terms list & rebuild menu if changed */
+  var newTerms = Array.isArray(args.terms) ? args.terms : [];
+  if (JSON.stringify(newTerms) !== JSON.stringify(terms)) {
+    terms = newTerms;
+    buildMenu();
+  }
+
+  setHeight(870);
+});
+
+window.parent.postMessage({
+  isStreamlitMessage: true,
+  type: "streamlit:componentReady",
+  apiVersion: 1
+}, "*");
+</script>
+</body>
+</html>

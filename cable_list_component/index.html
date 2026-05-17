@@ -1,0 +1,325 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  background: transparent;
+  color: #fafafa;
+  padding: 1px 0 6px 0;
+}
+
+#list { width: 100%; position: relative; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 4px;
+  border-radius: 5px;
+  margin-bottom: 3px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.08s;
+  position: relative;
+  cursor: default;
+}
+.row:hover { background: rgba(255,255,255,0.07); }
+
+.cb-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.cb-wrap input[type=checkbox] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #ff4b4b;
+}
+
+.found {
+  flex: 1.4;
+  color: #888;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  user-select: none;
+  padding: 2px 4px;
+}
+
+.sep {
+  color: #555;
+  font-size: 11px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.label-inp {
+  flex: 1.2;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #fafafa;
+  padding: 3px 7px;
+  font-size: 12px;
+  min-width: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+.label-inp:focus {
+  outline: none;
+  border-color: #4a8cdd;
+  background: rgba(74,140,221,0.09);
+}
+
+.del-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 3px;
+  flex-shrink: 0;
+  transition: color 0.1s;
+  user-select: none;
+}
+.del-btn:hover { color: #ff4b4b; }
+
+.empty {
+  color: #555;
+  font-size: 12px;
+  padding: 6px 4px;
+  font-style: italic;
+}
+
+.name-inp {
+  flex: 1.4;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #aaa;
+  padding: 2px 5px;
+  font-size: 11px;
+  min-width: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+.name-inp:focus {
+  outline: none;
+  border-color: #4a8cdd;
+  background: rgba(74,140,221,0.09);
+  color: #fafafa;
+}
+</style>
+</head>
+<body>
+<div id="list"></div>
+
+<script>
+"use strict";
+
+/* ── State ────────────────────────────────────────────────── */
+var items = [];
+
+/* ── Streamlit bridge ─────────────────────────────────────── */
+function sendValue() {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setComponentValue",
+    value: JSON.parse(JSON.stringify(items)),
+    dataType: "json"
+  }, "*");
+}
+
+function setHeight(h) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: "streamlit:setFrameHeight",
+    height: Math.max(h, 30)
+  }, "*");
+}
+
+/* ── Helpers ──────────────────────────────────────────────── */
+function findByGi(gi) {
+  for (var i = 0; i < items.length; i++) {
+    if (items[i]._gi === gi) return i;
+  }
+  return -1;
+}
+
+/* ── Row builder ─────────────────────────────────────────── */
+function buildRow(item) {
+  var gi = item._gi;
+
+  var row = document.createElement("div");
+  row.className  = "row";
+  row.dataset.gi = String(gi);
+
+  /* Checkbox */
+  var cbWrap = document.createElement("span");
+  cbWrap.className = "cb-wrap";
+  var cb = document.createElement("input");
+  cb.type    = "checkbox";
+  cb.checked = item.checked !== false;
+  cb.addEventListener("change", function() {
+    var idx = findByGi(gi);
+    if (idx >= 0) { items[idx].checked = this.checked; sendValue(); }
+  });
+  cbWrap.appendChild(cb);
+
+  /* Found text — editable for manual entries, read-only otherwise */
+  var isManual = item.is_manual === true;
+  var found;
+  if (isManual) {
+    found = document.createElement("input");
+    found.type      = "text";
+    found.className = "name-inp";
+    found.value     = item.ukv_text || "";
+    found.title     = "Name bearbeiten";
+    found.placeholder = "Name…";
+    found.addEventListener("input", function() {
+      var idx = findByGi(gi);
+      if (idx >= 0) items[idx].ukv_text = this.value;
+    });
+    found.addEventListener("blur",    function() { sendValue(); });
+    found.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { this.blur(); }
+      e.stopPropagation();
+    });
+    found.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
+  } else {
+    found = document.createElement("span");
+    found.className   = "found";
+    found.textContent = item.ukv_text || "";
+    found.title       = item.ukv_text || "";
+  }
+
+  /* Separator */
+  var sep = document.createElement("span");
+  sep.className   = "sep";
+  sep.textContent = "\u2192";
+
+  /* Label input */
+  var inp = document.createElement("input");
+  inp.type      = "text";
+  inp.className = "label-inp";
+  inp.value     = item.label || "";
+  inp.addEventListener("input", function() {
+    var idx = findByGi(gi);
+    if (idx >= 0) items[idx].label = this.value;
+  });
+  inp.addEventListener("blur",    function() { sendValue(); });
+  inp.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { this.blur(); }
+    e.stopPropagation();
+  });
+  inp.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
+
+  /* Delete button */
+  var del = document.createElement("button");
+  del.className = "del-btn";
+  del.title     = "Eintrag l\u00f6schen";
+  del.innerHTML = "&times;";
+  del.addEventListener("click", function(e) {
+    e.stopPropagation();
+    var idx = findByGi(gi);
+    if (idx >= 0) { items.splice(idx, 1); render(); sendValue(); }
+  });
+  del.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
+
+  row.appendChild(cbWrap);
+  row.appendChild(found);
+  row.appendChild(sep);
+  row.appendChild(inp);
+  row.appendChild(del);
+  return row;
+}
+
+/* ── Render ───────────────────────────────────────────────── */
+function render() {
+  var container = document.getElementById("list");
+
+  /* Remember focused label field */
+  var focusGi = null, focusStart = 0, focusEnd = 0;
+  var focused = container.querySelector(".label-inp:focus");
+  if (focused) {
+    var fr = focused.closest(".row");
+    if (fr) {
+      focusGi    = parseInt(fr.dataset.gi, 10);
+      focusStart = focused.selectionStart;
+      focusEnd   = focused.selectionEnd;
+    }
+  }
+
+  container.innerHTML = "";
+
+  if (items.length === 0) {
+    var empty = document.createElement("div");
+    empty.className   = "empty";
+    empty.textContent = "Keine Eintr\u00e4ge";
+    container.appendChild(empty);
+  } else {
+    items.forEach(function(item) { container.appendChild(buildRow(item)); });
+
+    if (focusGi !== null) {
+      var target = container.querySelector(
+        '.row[data-gi="' + focusGi + '"] .label-inp'
+      );
+      if (target) {
+        target.focus();
+        try { target.setSelectionRange(focusStart, focusEnd); } catch(_) {}
+      }
+    }
+  }
+
+  setTimeout(function() { setHeight(container.scrollHeight + 14); }, 0);
+}
+
+/* ── Streamlit message bus ────────────────────────────────── */
+window.addEventListener("message", function(e) {
+  var d = e.data;
+  if (!d || typeof d !== "object") return;
+  if (d.type === "streamlit:render") {
+    var newItems = (d.args && Array.isArray(d.args.items)) ? d.args.items : [];
+
+    /* If the user is actively editing an input, preserve that value so a
+       rerun triggered by the other search term doesn't wipe their work.
+       The blur fired by container.innerHTML="" will send the preserved
+       value to Python, which only reruns if something actually changed. */
+    var editGi = null, editValue = "";
+    var listEl = document.getElementById("list");
+    var focusedInp = listEl ? listEl.querySelector(".label-inp:focus") : null;
+    if (focusedInp) {
+      var fr = focusedInp.closest(".row");
+      if (fr) {
+        editGi    = parseInt(fr.dataset.gi, 10);
+        editValue = focusedInp.value;
+      }
+    }
+
+    items = JSON.parse(JSON.stringify(newItems));
+
+    /* Restore the in-progress edit so it survives the re-render */
+    if (editGi !== null) {
+      var editIdx = findByGi(editGi);
+      if (editIdx >= 0) items[editIdx].label = editValue;
+    }
+
+    render();
+  }
+});
+
+window.parent.postMessage({
+  isStreamlitMessage: true,
+  type: "streamlit:componentReady",
+  apiVersion: 1
+}, "*");
+</script>
+</body>
+</html>
