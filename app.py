@@ -570,6 +570,34 @@ def apply_labels_with_prefix(kabel_fields, term, pattern):
             cnt += 1
 
 
+def apply_labels_with_prefix_from(kabel_fields, term, start_id, pattern):
+    """Like apply_labels_with_prefix but starts renaming only from the entry with _id==start_id.
+    Entries before that position keep their current labels."""
+    parsed = _parse_prefix_and_start(pattern)
+    if not parsed:
+        return
+    prefix, sep, start_num, width = parsed
+    cnt = start_num
+    found_start = False
+    for k in kabel_fields:
+        if k.get("term", "").lower() != term.lower():
+            continue
+        if not k.get("checked", True):
+            continue
+        if k.get("_id") == start_id:
+            found_start = True
+        if not found_start:
+            continue
+        if k.get("kabel_typ") == "2x RJ45":
+            l1 = f"{prefix}{sep}{cnt:0{width}d}"
+            l2 = f"{prefix}{sep}{cnt+1:0{width}d}"
+            k["label"] = f"{l1}/{l2}"
+            cnt += 2
+        else:
+            k["label"] = f"{prefix}{sep}{cnt:0{width}d}"
+            cnt += 1
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Export helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -915,68 +943,77 @@ with st.sidebar:
             result = cable_list_widget(group_items, key=f"cl_{term}")
 
             if result is not None:
-                kf = st.session_state.kabel_fields
-                # Build a lookup from stable _id → kabel_fields entry
-                id_to_kf = {k.get("_id"): k for k in kf if "_id" in k}
-
-                result_ids = [it["_gi"] for it in result
-                              if isinstance(it, dict) and "_gi" in it]
-                id_to_res  = {it["_gi"]: it for it in result
-                              if isinstance(it, dict) and "_gi" in it}
-
-                # Delete this term's cached value immediately to prevent replay.
+                # Immediately consume to prevent replay on next rerun
                 if f"cl_{term}" in st.session_state:
                     del st.session_state[f"cl_{term}"]
 
-                # Discard entirely if any returned ID is unknown or belongs to
-                # a different term (stale sendValue after sort/delete/rename).
-                if not all(
-                    sid in id_to_kf and id_to_kf[sid].get("term", "") == term
-                    for sid in id_to_res
-                ):
-                    pass  # ignore stale result
-                else:
-                    changed = False
-                    for sid, res in id_to_res.items():
-                        entry = id_to_kf.get(sid)
-                        if entry is None:
-                            continue
-                        new_label   = res.get("label",   entry["label"])
-                        new_checked = res.get("checked", entry.get("checked", True))
-                        new_ukv     = res.get("ukv_text", entry["ukv_text"])
-                        if (new_label   != entry["label"]
-                                or new_checked != entry.get("checked", True)
-                                or new_ukv     != entry["ukv_text"]):
-                            changed = True
-                        entry["label"]    = new_label
-                        entry["checked"]  = new_checked
-                        entry["ukv_text"] = new_ukv
-
-                    if len(result_ids) < len(orig_ids):
-                        # ── Deletion ──────────────────────────────────────
-                        # Only IDs that were in prev_sent_ids (component was
-                        # actually showing them) can be legitimately deleted.
-                        # IDs that appeared AFTER the last render (e.g. just
-                        # added via add_position) are NOT deletions.
-                        valid_deletable = set(prev_sent_ids) if prev_sent_ids else set(orig_ids)
-                        deleted_ids = (set(orig_ids) - set(result_ids)) & valid_deletable
-                        if deleted_ids:
-                            st.session_state.kabel_fields = [
-                                k for k in kf
-                                if k.get("_id") not in deleted_ids
-                                or k.get("term", "") != term
-                            ]
-                            _clear_component_states()
-                            apply_labels(
-                                st.session_state.kabel_fields,
-                                st.session_state.search_terms,
-                            )
-                            changed = True
-
-                    if changed:
+                # ── Context-menu action: prefix from a specific row ────────
+                if isinstance(result, dict) and result.get("action") == "prefix_from_here":
+                    _start_gi = result.get("_gi")
+                    _pval     = result.get("prefix", "").strip()
+                    if _pval and _start_gi is not None:
+                        apply_labels_with_prefix_from(
+                            st.session_state.kabel_fields, term, _start_gi, _pval
+                        )
                         _clear_component_states()
                         st.session_state.pdf_dirty = True
                         st.rerun()
+
+                else:
+                    kf = st.session_state.kabel_fields
+                    # Build a lookup from stable _id → kabel_fields entry
+                    id_to_kf = {k.get("_id"): k for k in kf if "_id" in k}
+
+                    result_ids = [it["_gi"] for it in result
+                                  if isinstance(it, dict) and "_gi" in it]
+                    id_to_res  = {it["_gi"]: it for it in result
+                                  if isinstance(it, dict) and "_gi" in it}
+
+                    # Discard entirely if any returned ID is unknown or belongs to
+                    # a different term (stale sendValue after sort/delete/rename).
+                    if not all(
+                        sid in id_to_kf and id_to_kf[sid].get("term", "") == term
+                        for sid in id_to_res
+                    ):
+                        pass  # ignore stale result
+                    else:
+                        changed = False
+                        for sid, res in id_to_res.items():
+                            entry = id_to_kf.get(sid)
+                            if entry is None:
+                                continue
+                            new_label   = res.get("label",   entry["label"])
+                            new_checked = res.get("checked", entry.get("checked", True))
+                            new_ukv     = res.get("ukv_text", entry["ukv_text"])
+                            if (new_label   != entry["label"]
+                                    or new_checked != entry.get("checked", True)
+                                    or new_ukv     != entry["ukv_text"]):
+                                changed = True
+                            entry["label"]    = new_label
+                            entry["checked"]  = new_checked
+                            entry["ukv_text"] = new_ukv
+
+                        if len(result_ids) < len(orig_ids):
+                            # ── Deletion ──────────────────────────────────
+                            valid_deletable = set(prev_sent_ids) if prev_sent_ids else set(orig_ids)
+                            deleted_ids = (set(orig_ids) - set(result_ids)) & valid_deletable
+                            if deleted_ids:
+                                st.session_state.kabel_fields = [
+                                    k for k in kf
+                                    if k.get("_id") not in deleted_ids
+                                    or k.get("term", "") != term
+                                ]
+                                _clear_component_states()
+                                apply_labels(
+                                    st.session_state.kabel_fields,
+                                    st.session_state.search_terms,
+                                )
+                                changed = True
+
+                        if changed:
+                            _clear_component_states()
+                            st.session_state.pdf_dirty = True
+                            st.rerun()
 
         # ── Export ─────────────────────────────────────────────────────────
         st.divider()
