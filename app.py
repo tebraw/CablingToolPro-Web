@@ -921,6 +921,11 @@ with st.sidebar:
         if st.session_state.get("pdf_dirty"):
             st.caption("⚠️ Änderungen noch nicht im PDF – klicke **PDF updaten**")
 
+        st.session_state["label_drag_mode"] = st.toggle(
+            "✋ Beschriftungen verschieben",
+            value=st.session_state.get("label_drag_mode", False),
+        )
+
         if st.button("\U0001f524 Nach Fundstelle sortieren", use_container_width=True):
             _clear_component_states()
             from collections import defaultdict
@@ -1227,18 +1232,21 @@ else:
 
     img_b64 = base64.b64encode(img_bytes).decode()
 
-    # ── Compute label drag handles ────────────────────────────────────────
+    # ── Compute label drag handles (only in drag mode) ─────────────────────
     cur_page = st.session_state.current_page
     _doc_ph = fitz.open(stream=st.session_state.doc_bytes, filetype="pdf")
     _ph = _doc_ph.load_page(cur_page).rect.height
     _pw = _doc_ph.load_page(cur_page).rect.width
     _doc_ph.close()
-    label_handles = _get_label_handles(
-        st.session_state.kabel_fields_snap,
-        cur_page,
-        st.session_state.zoom,
-        _ph,
-    )
+    if st.session_state.get("label_drag_mode", False):
+        label_handles = _get_label_handles(
+            st.session_state.kabel_fields_snap,
+            cur_page,
+            st.session_state.zoom,
+            _ph,
+        )
+    else:
+        label_handles = []
 
     # ── Handle right-click "add position" result ──────────────────────────
     viewer_result = pdf_viewer_widget(
