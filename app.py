@@ -10,6 +10,7 @@ import base64
 import math
 import datetime
 import string
+import copy
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Font as XLFont
 from openpyxl.utils import get_column_letter
@@ -90,6 +91,9 @@ def _init():
         "export_pdf_bytes": None,
         "search_ran": False,
         "_id_seq": 0,
+        "kabel_fields_snap": [],
+        "annotations_snap": [],
+        "pdf_dirty": False,
         "user_name": "",
         "user_email": "",
         "user_registered": False,
@@ -667,6 +671,9 @@ with st.sidebar:
             st.session_state.doc_bytes = new_bytes
             st.session_state.kabel_fields = []
             st.session_state.annotations = []
+            st.session_state.kabel_fields_snap = []
+            st.session_state.annotations_snap = []
+            st.session_state.pdf_dirty = False
             st.session_state.search_terms = []
             st.session_state.current_page = 0
             st.session_state.export_pdf_bytes = None
@@ -718,6 +725,9 @@ with st.sidebar:
             _clear_label_widgets()
             st.session_state.kabel_fields = kf
             st.session_state.annotations = anns
+            st.session_state.kabel_fields_snap = copy.deepcopy(kf)
+            st.session_state.annotations_snap = copy.deepcopy(anns)
+            st.session_state.pdf_dirty = False
             st.session_state.search_terms = terms
             st.session_state.export_pdf_bytes = None
             st.session_state.search_ran = True
@@ -735,11 +745,17 @@ with st.sidebar:
             if st.button("🔄 Umnummerieren", use_container_width=True):
                 _clear_component_states()
                 apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
+                st.session_state.pdf_dirty = True
                 st.rerun()
         with col_b:
-            if st.button("\U0001f58a\ufe0f PDF updaten", use_container_width=True):
+            if st.button("\U0001f58a\ufe0f PDF updaten", use_container_width=True, type="primary"):
+                st.session_state.kabel_fields_snap = copy.deepcopy(st.session_state.kabel_fields)
+                st.session_state.annotations_snap  = list(st.session_state.annotations)
+                st.session_state.pdf_dirty = False
                 _clear_component_states()
                 st.rerun()
+        if st.session_state.get("pdf_dirty"):
+            st.caption("⚠️ Änderungen noch nicht im PDF – klicke **PDF updaten**")
 
         if st.button("\U0001f524 Nach Fundstelle sortieren", use_container_width=True):
             _clear_component_states()
@@ -752,6 +768,7 @@ with st.sidebar:
                 for k in sorted(term_groups[t], key=lambda x: _natural_key(x["ukv_text"]))
             ]
             apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
+            st.session_state.pdf_dirty = True
             st.rerun()
 
         # Group by search term for display
@@ -781,7 +798,7 @@ with st.sidebar:
             if new_color != current_color:
                 for _, k in entries:
                     k["label_bg_color"] = new_color
-                st.rerun()
+                st.session_state.pdf_dirty = True
 
             # ── Prefix / pattern rename ───────────────────────────────────
             prefix_col, btn_col = st.columns([4, 1])
@@ -799,6 +816,7 @@ with st.sidebar:
                             st.session_state.kabel_fields, term, prefix_val.strip()
                         )
                         _clear_component_states()
+                        st.session_state.pdf_dirty = True
                         st.rerun()
 
             # ── Cable list component (edit / delete) ──────────────────────
@@ -888,6 +906,7 @@ with st.sidebar:
 
                     if changed:
                         _clear_component_states()
+                        st.session_state.pdf_dirty = True
                         st.rerun()
 
         # ── Export ─────────────────────────────────────────────────────────
@@ -1015,13 +1034,13 @@ else:
         k["label"] = st.session_state.get(f"label_{i}", k["label"])
         k["checked"] = st.session_state.get(f"cb_{i}", k.get("checked", True))
 
-    # Render page
+    # Render page from committed snapshot (updated by "PDF updaten" button)
     with st.spinner(""):
         img_bytes = render_page(
             st.session_state.doc_bytes,
             st.session_state.current_page,
-            st.session_state.kabel_fields,
-            st.session_state.annotations,
+            st.session_state.kabel_fields_snap,
+            st.session_state.annotations_snap,
             zoom=st.session_state.zoom,
         )
 
@@ -1112,6 +1131,10 @@ else:
         # Renumber all labels so the new entry gets a proper letter/number
         _clear_component_states()
         apply_labels(kf, terms_order)
+        # Sync snap immediately so the new marker is visible right away
+        st.session_state.kabel_fields_snap = copy.deepcopy(kf)
+        st.session_state.annotations_snap  = list(st.session_state.annotations)
+        st.session_state.pdf_dirty = False
         st.rerun()
 
     # Quick-jump buttons below image
