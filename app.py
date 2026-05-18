@@ -524,7 +524,81 @@ def _parse_prefix_and_start(pattern):
     return prefix, sep, int(num_str), len(num_str)
 
 
-def _next_ukv_for_term(kabel_fields, term):
+def _next_alpha_prefix(letters):
+    """Increment the alphabetic prefix: A→B, Z→AA, AZ→BA, ZZ→AAA, etc."""
+    chars = list(letters.upper())
+    i = len(chars) - 1
+    while i >= 0:
+        if chars[i] < "Z":
+            chars[i] = chr(ord(chars[i]) + 1)
+            return "".join(chars)
+        chars[i] = "A"
+        i -= 1
+    return "A" + "".join(chars)
+
+
+def _prefix_label_gen(prefix, sep, start_num, width, group_size=24):
+    """Generator yielding (prefix_letters, number_str) for each slot,
+    wrapping the number back to 1 and advancing the letter after group_size."""
+    cur_letters = prefix.upper()
+    cur_num = start_num
+    while True:
+        if cur_num > group_size:
+            cur_letters = _next_alpha_prefix(cur_letters)
+            cur_num = 1
+        yield f"{cur_letters}{sep}{cur_num:0{width}d}"
+        cur_num += 1
+
+
+def apply_labels_with_prefix(kabel_fields, term, pattern):
+    """Rename all checked entries of `term` using `pattern` as the first label.
+    Numbers wrap at 24 per letter group: A.01…A.24, B.01…B.24, …
+    2x-RJ45 entries consume two consecutive slots.
+    Unchecked entries are left unchanged."""
+    parsed = _parse_prefix_and_start(pattern)
+    if not parsed:
+        return
+    prefix, sep, start_num, width = parsed
+    gen = _prefix_label_gen(prefix, sep, start_num, width)
+    for k in kabel_fields:
+        if k.get("term", "").lower() != term.lower():
+            continue
+        if not k.get("checked", True):
+            continue
+        if k.get("kabel_typ") == "2x RJ45":
+            l1 = next(gen)
+            l2 = next(gen)
+            k["label"] = f"{l1}/{l2}"
+        else:
+            k["label"] = next(gen)
+
+
+def apply_labels_with_prefix_from(kabel_fields, term, start_id, pattern):
+    """Like apply_labels_with_prefix but starts renaming only from the entry with _id==start_id.
+    Entries before that position keep their current labels."""
+    parsed = _parse_prefix_and_start(pattern)
+    if not parsed:
+        return
+    prefix, sep, start_num, width = parsed
+    gen = _prefix_label_gen(prefix, sep, start_num, width)
+    found_start = False
+    for k in kabel_fields:
+        if k.get("term", "").lower() != term.lower():
+            continue
+        if not k.get("checked", True):
+            continue
+        if k.get("_id") == start_id:
+            found_start = True
+        if not found_start:
+            continue
+        if k.get("kabel_typ") == "2x RJ45":
+            l1 = next(gen)
+            l2 = next(gen)
+            k["label"] = f"{l1}/{l2}"
+        else:
+            k["label"] = next(gen)
+
+
     """Look at ukv_text values of existing entries for `term` and return the next name
     in the detected sequence (e.g. 'Dose 03' → 'Dose 04', 'AB.007' → 'AB.008').
     Returns None when no trailing-number pattern is found."""
@@ -543,59 +617,6 @@ def _next_ukv_for_term(kabel_fields, term):
             width       = len(num_str)
             return f"{prefix_part}{next_num:0{width}d}"
     return None
-
-
-def apply_labels_with_prefix(kabel_fields, term, pattern):
-    """Rename all checked entries of `term` using `pattern` as the first label.
-    E.g. pattern='Z.01' → Z.01, Z.02, …; 'F101' → F101, F102, …
-    2x-RJ45 entries get two consecutive numbers joined with '/'.
-    Unchecked entries are left unchanged."""
-    parsed = _parse_prefix_and_start(pattern)
-    if not parsed:
-        return  # invalid pattern, do nothing
-    prefix, sep, start_num, width = parsed
-    cnt = start_num
-    for k in kabel_fields:
-        if k.get("term", "").lower() != term.lower():
-            continue
-        if not k.get("checked", True):
-            continue
-        if k.get("kabel_typ") == "2x RJ45":
-            l1 = f"{prefix}{sep}{cnt:0{width}d}"
-            l2 = f"{prefix}{sep}{cnt+1:0{width}d}"
-            k["label"] = f"{l1}/{l2}"
-            cnt += 2
-        else:
-            k["label"] = f"{prefix}{sep}{cnt:0{width}d}"
-            cnt += 1
-
-
-def apply_labels_with_prefix_from(kabel_fields, term, start_id, pattern):
-    """Like apply_labels_with_prefix but starts renaming only from the entry with _id==start_id.
-    Entries before that position keep their current labels."""
-    parsed = _parse_prefix_and_start(pattern)
-    if not parsed:
-        return
-    prefix, sep, start_num, width = parsed
-    cnt = start_num
-    found_start = False
-    for k in kabel_fields:
-        if k.get("term", "").lower() != term.lower():
-            continue
-        if not k.get("checked", True):
-            continue
-        if k.get("_id") == start_id:
-            found_start = True
-        if not found_start:
-            continue
-        if k.get("kabel_typ") == "2x RJ45":
-            l1 = f"{prefix}{sep}{cnt:0{width}d}"
-            l2 = f"{prefix}{sep}{cnt+1:0{width}d}"
-            k["label"] = f"{l1}/{l2}"
-            cnt += 2
-        else:
-            k["label"] = f"{prefix}{sep}{cnt:0{width}d}"
-            cnt += 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
