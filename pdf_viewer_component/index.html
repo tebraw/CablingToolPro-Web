@@ -168,7 +168,9 @@ function initCenter() {
 
 /* ── Pan ─────────────────────────────────────────────────────── */
 outer.addEventListener("mousedown", function(e) {
-  if (e.button !== 0) return;  if (e.target.classList.contains("lbl-handle")) return; // don't pan when dragging label  dragging = true;
+  if (e.button !== 0) return;
+  if (e.target.classList.contains("lbl-handle")) return; // don't pan when dragging a label
+  dragging = true;
   sx = e.clientX; sy = e.clientY;
   stx = tx;       sty = ty;
   outer.classList.add("dragging");
