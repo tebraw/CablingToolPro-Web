@@ -528,6 +528,48 @@ def _parse_prefix_and_start(pattern):
     return prefix, sep, int(num_str), len(num_str)
 
 
+def _get_label_handles(kabel_fields_snap, page_num, zoom, ph):
+    """Return a list of label drag-handle descriptors (natural image pixel coords)
+    for all entries on the given page.  /Rotate-90 mapping:
+      img_x = ly * zoom,  img_y = (ph - lx - box_w) * zoom
+      img_w = box_h * zoom, img_h = box_w * zoom
+    """
+    handles = []
+    box_h = 14  # label box height in fitz pts (matches render_page)
+    for kabel in kabel_fields_snap:
+        if kabel.get("page", 0) != page_num:
+            continue
+        text = kabel.get("label", "") or kabel.get("bezeichnung", "")
+        if not text:
+            continue
+        tw = fitz.get_text_length(text, fontname="helv", fontsize=9)
+        box_w = tw + 3 * 2
+        if kabel.get("label_pos_fitz"):
+            lx = float(kabel["label_pos_fitz"][0])
+            ly = float(kabel["label_pos_fitz"][1])
+        else:
+            r = kabel.get("rect") or kabel.get("position") or []
+            if len(r) < 2:
+                continue
+            lx = float(r[1]) - box_h - 2
+            ly = float(r[0])
+        img_x = round(ly * zoom, 1)
+        img_y = round((ph - lx - box_w) * zoom, 1)
+        img_w = round(box_h * zoom, 1)
+        img_h = round(box_w * zoom, 1)
+        fill_hex = kabel.get("fill_hex", "#fffde7")
+        handles.append({
+            "_id":     kabel.get("_id"),
+            "text":    text,
+            "img_x":   img_x,
+            "img_y":   img_y,
+            "img_w":   img_w,
+            "img_h":   img_h,
+            "fill_hex": fill_hex,
+        })
+    return handles
+
+
 def _next_alpha_prefix(letters):
     """Increment the alphabetic prefix: A→B, Z→AA, AZ→BA, ZZ→AAA, etc."""
     chars = list(letters.upper())
