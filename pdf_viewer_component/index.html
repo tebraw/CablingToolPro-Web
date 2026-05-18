@@ -22,6 +22,30 @@ html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
   pointer-events: none;
 }
 
+/* ── Label drag handles ───────────────────────────────────────── */
+.lbl-handle {
+  position: absolute;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.12s, border-color 0.12s, background 0.12s;
+  z-index: 10;
+}
+.lbl-handle:hover {
+  opacity: 1;
+  border-color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.18);
+}
+.lbl-handle.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+  border-color: #4a8cdd;
+  background: rgba(74,140,221,0.35);
+  z-index: 20;
+}
+
 /* ── Context menu ─────────────────────────────────────────────── */
 #ctx-menu {
   display: none;
@@ -82,11 +106,13 @@ html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
 /* ── State ───────────────────────────────────────────────────── */
 var scale = 1, tx = 0, ty = 0;
 var dragging = false, sx = 0, sy = 0, stx = 0, sty = 0;
-var pendingPdfX = 0, pendingPdfY = 0; /* PDF-space coords computed at right-click time */
-var currentZoom = 1.5; /* Python render zoom, updated on every streamlit:render */
+var labelDragState = null;  /* {div, id, startCX, startCY, startLeft, startTop, imgW, imgH} */
+var pendingPdfX = 0, pendingPdfY = 0;
+var currentZoom = 1.5;
 var terms   = [];
+var labelHandles = [];
 var colors  = ["#ffe066","#7eeaff","#a7ef7e","#ff8cdd","#c89fff"];
-var initialized = false; /* true once we've successfully centered the image */
+var initialized = false;
 
 /* ── Streamlit bridge ────────────────────────────────────────── */
 function sendValue(v) {
@@ -142,8 +168,7 @@ function initCenter() {
 
 /* ── Pan ─────────────────────────────────────────────────────── */
 outer.addEventListener("mousedown", function(e) {
-  if (e.button !== 0) return;
-  dragging = true;
+  if (e.button !== 0) return;  if (e.target.classList.contains("lbl-handle")) return; // don't pan when dragging label  dragging = true;
   sx = e.clientX; sy = e.clientY;
   stx = tx;       sty = ty;
   outer.classList.add("dragging");
@@ -177,6 +202,53 @@ outer.addEventListener("wheel", function(e) {
 window.addEventListener("wheel", function(e) {
   if (e.ctrlKey) e.preventDefault();
 }, { passive: false });
+
+/* ── Label drag handles ────────────────────────────────────────── */
+function buildLabelHandles(newHandles) {
+  var old = inner.querySelectorAll(".lbl-handle");
+  old.forEach(function(el) { el.parentNode.removeChild(el); });
+  labelHandles = newHandles;
+  labelHandles.forEach(function(lbl) {
+    var div = document.createElement("div");
+    div.className = "lbl-handle";
+    div.style.left   = lbl.img_x + "px";
+    div.style.top    = lbl.img_y + "px";
+    div.style.width  = lbl.img_w + "px";
+    div.style.height = lbl.img_h + "px";
+    div.title = "\u2194 " + lbl.text + " (ziehen zum Verschieben)";
+
+    div.addEventListener("pointerdown", function(e) {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      div.setPointerCapture(e.pointerId);
+      labelDragState = {
+        div: div, id: lbl._id,
+        startCX: e.clientX, startCY: e.clientY,
+        startLeft: lbl.img_x, startTop: lbl.img_y,
+      };
+      div.classList.add("dragging");
+    });
+    div.addEventListener("pointermove", function(e) {
+      if (!labelDragState || labelDragState.div !== div) return;
+      var dx = (e.clientX - labelDragState.startCX) / scale;
+      var dy = (e.clientY - labelDragState.startCY) / scale;
+      div.style.left = (labelDragState.startLeft + dx) + "px";
+      div.style.top  = (labelDragState.startTop  + dy) + "px";
+    });
+    div.addEventListener("pointerup", function(e) {
+      if (!labelDragState || labelDragState.div !== div) return;
+      div.classList.remove("dragging");
+      var dx = (e.clientX - labelDragState.startCX) / scale;
+      var dy = (e.clientY - labelDragState.startCY) / scale;
+      var newImgX = labelDragState.startLeft + dx;
+      var newImgY = labelDragState.startTop  + dy;
+      labelDragState = null;
+      sendValue({ action: "move_label", _id: lbl._id, img_x: newImgX, img_y: newImgY });
+    });
+    div.addEventListener("contextmenu", function(e) { e.stopPropagation(); e.preventDefault(); });
+    inner.appendChild(div);
+  });
+}
 
 /* ── Right-click context menu ────────────────────────────────── */
 outer.addEventListener("contextmenu", function(e) {
@@ -287,6 +359,10 @@ window.addEventListener("message", function(e) {
     terms = newTerms;
     buildMenu();
   }
+
+  /* Update label handles */
+  var newHandles = Array.isArray(args.label_handles) ? args.label_handles : [];
+  buildLabelHandles(newHandles);
 
   setHeight(870);
 });

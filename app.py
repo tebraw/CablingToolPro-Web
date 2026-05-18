@@ -482,7 +482,11 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
         tw = fitz.get_text_length(text, fontname="helv", fontsize=fs)
         box_w = tw + pad_h * 2
         box_h = fs + pad_v * 2
-        lx, ly = _place_label(occupied, float(r[0]), float(r[1]), box_w, box_h)
+        if kabel.get("label_pos_fitz"):
+            lx = float(kabel["label_pos_fitz"][0])
+            ly = float(kabel["label_pos_fitz"][1])
+        else:
+            lx, ly = _place_label(occupied, float(r[0]), float(r[1]), box_w, box_h)
         occupied.append((lx, ly, lx + box_w, ly + box_h))
         _draw_label_annot(page, lx, ly, box_w, box_h, fill_rgb, text, fs, pad_h)
 
@@ -1181,6 +1185,19 @@ else:
 
     img_b64 = base64.b64encode(img_bytes).decode()
 
+    # ── Compute label drag handles ────────────────────────────────────────
+    cur_page = st.session_state.current_page
+    _doc_ph = fitz.open(stream=st.session_state.doc_bytes, filetype="pdf")
+    _ph = _doc_ph.load_page(cur_page).rect.height
+    _pw = _doc_ph.load_page(cur_page).rect.width
+    _doc_ph.close()
+    label_handles = _get_label_handles(
+        st.session_state.kabel_fields_snap,
+        cur_page,
+        st.session_state.zoom,
+        _ph,
+    )
+
     # ── Handle right-click "add position" result ──────────────────────────
     viewer_result = pdf_viewer_widget(
         img_b64=img_b64,
@@ -1188,27 +1205,39 @@ else:
         tx=0,
         ty=0,
         terms=st.session_state.get("search_terms", []),
+        label_handles=label_handles,
         key="pdf_viewer",
     )
     # Immediately consume the cached state so it can never be replayed on a
     # later rerun (e.g. triggered by a cable-list component update).
     if "pdf_viewer" in st.session_state:
         del st.session_state["pdf_viewer"]
-    if viewer_result and viewer_result.get("action") == "add_position":
+    if viewer_result and viewer_result.get("action") == "move_label":
+        _moved_id  = viewer_result.get("_id")
+        _new_img_x = float(viewer_result.get("img_x", 0))
+        _new_img_y = float(viewer_result.get("img_y", 0))
+        kf = st.session_state.kabel_fields
+        moved_entry = next((k for k in kf if k.get("_id") == _moved_id), None)
+        if moved_entry:
+            text = moved_entry.get("label", "").strip()
+            fs = 9; pad_h = 3
+            tw = fitz.get_text_length(text, fontname="helv", fontsize=fs)
+            box_w = tw + pad_h * 2
+            _zoom = st.session_state.zoom
+            new_lx = _ph - box_w - _new_img_y / _zoom
+            new_ly = _new_img_x / _zoom
+            moved_entry["label_pos_fitz"] = [new_lx, new_ly]
+            for ks in st.session_state.kabel_fields_snap:
+                if ks.get("_id") == _moved_id:
+                    ks["label_pos_fitz"] = [new_lx, new_ly]
+                    break
+            st.session_state.pdf_dirty = True
+            st.rerun()
+    elif viewer_result and viewer_result.get("action") == "add_position":
         chosen_term = viewer_result["term"]
-        # JS computed the PDF coords at right-click time using the formula for
-        # /Rotate-90 pages: pdf_x=(nat_h-nat_y)/zoom, pdf_y=nat_x/zoom.
-        # We just consume them here and clamp to the page rectangle.
         pdf_x = float(viewer_result.get("pdf_x", 0))
         pdf_y = float(viewer_result.get("pdf_y", 0))
-
-        cur_page = st.session_state.current_page
-        _doc = fitz.open(stream=st.session_state.doc_bytes, filetype="pdf")
-        _page = _doc.load_page(cur_page)
-        _pw = _page.rect.width
-        _ph = _page.rect.height
-        _doc.close()
-
+        # cur_page, _ph, _pw already computed above for label handles
         pdf_x = max(0.0, min(pdf_x, _ph))  # after /Rotate-90 swap: x←height axis → clamp to _ph
         pdf_y = max(0.0, min(pdf_y, _pw))  # after /Rotate-90 swap: y←width axis  → clamp to _pw
 
