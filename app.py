@@ -427,7 +427,10 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h):
     txt_ann.update()
 
 
-def render_page(doc_bytes, page_num, kabel_fields, annotations, zoom=1.5):
+@st.cache_data(show_spinner=False, max_entries=30)
+def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1.5):
+    kabel_fields = json.loads(kabel_fields_json)
+    annotations  = json.loads(annotations_json)
     doc = fitz.open(stream=doc_bytes, filetype="pdf")
     page = doc.load_page(page_num)
 
@@ -1110,14 +1113,13 @@ else:
         k["checked"] = st.session_state.get(f"cb_{i}", k.get("checked", True))
 
     # Render page from committed snapshot (updated by "PDF updaten" button)
-    with st.spinner(""):
-        img_bytes = render_page(
-            st.session_state.doc_bytes,
-            st.session_state.current_page,
-            st.session_state.kabel_fields_snap,
-            st.session_state.annotations_snap,
-            zoom=st.session_state.zoom,
-        )
+    img_bytes = render_page(
+        st.session_state.doc_bytes,
+        st.session_state.current_page,
+        json.dumps(st.session_state.kabel_fields_snap, sort_keys=True),
+        json.dumps(st.session_state.annotations_snap,  sort_keys=True),
+        zoom=st.session_state.zoom,
+    )
 
     img_b64 = base64.b64encode(img_bytes).decode()
 
