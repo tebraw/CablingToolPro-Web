@@ -11,6 +11,8 @@ import math
 import datetime
 import string
 import copy
+import zipfile
+import json
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Font as XLFont
 from openpyxl.utils import get_column_letter
@@ -170,6 +172,58 @@ def _clear_label_widgets():
     for key in list(st.session_state.keys()):
         if key.startswith("label_") or key.startswith("cb_"):
             del st.session_state[key]
+
+
+def _build_project_zip():
+    """Pack current session state into a .ctpro ZIP (PDF + JSON metadata)."""
+    meta = {
+        "kabel_fields":      st.session_state.kabel_fields,
+        "kabel_fields_snap": st.session_state.kabel_fields_snap,
+        "annotations":       st.session_state.annotations,
+        "annotations_snap":  st.session_state.annotations_snap,
+        "search_terms":      st.session_state.search_terms,
+        "settings": {
+            "setting_2x_rj45":  st.session_state.setting_2x_rj45,
+            "setting_2x_short": st.session_state.setting_2x_short,
+            "setting_rj45":     st.session_state.setting_rj45,
+            "setting_2xukv":    st.session_state.setting_2xukv,
+        },
+        "_id_seq": st.session_state["_id_seq"],
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("plan.pdf", st.session_state.doc_bytes)
+        zf.writestr("project.json", json.dumps(meta, ensure_ascii=False))
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def _load_project(zip_bytes):
+    """Restore session state from a .ctpro ZIP file."""
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        pdf_bytes = zf.read("plan.pdf")
+        meta      = json.loads(zf.read("project.json").decode("utf-8"))
+    st.session_state.doc_bytes          = pdf_bytes
+    st.session_state.kabel_fields       = meta.get("kabel_fields", [])
+    st.session_state.kabel_fields_snap  = meta.get("kabel_fields_snap", copy.deepcopy(meta.get("kabel_fields", [])))
+    st.session_state.annotations        = meta.get("annotations", [])
+    st.session_state.annotations_snap   = meta.get("annotations_snap", list(meta.get("annotations", [])))
+    st.session_state.search_terms       = meta.get("search_terms", [])
+    settings = meta.get("settings", {})
+    st.session_state.setting_2x_rj45  = settings.get("setting_2x_rj45",  True)
+    st.session_state.setting_2x_short = settings.get("setting_2x_short", True)
+    st.session_state.setting_rj45     = settings.get("setting_rj45",     True)
+    st.session_state.setting_2xukv    = settings.get("setting_2xukv",    False)
+    # Restore ID counter so new IDs never collide with loaded ones
+    existing_ids = [k.get("_id", 0) for k in st.session_state.kabel_fields]
+    st.session_state["_id_seq"] = max(existing_ids + [meta.get("_id_seq", 0)])
+    st.session_state.pdf_dirty        = False
+    st.session_state.export_pdf_bytes = None
+    st.session_state.search_ran       = bool(st.session_state.kabel_fields)
+    kf = st.session_state.kabel_fields
+    st.session_state.current_page = kf[0]["page_num"] if kf else 0
+    _clear_label_widgets()
+    _clear_component_states()
 
 
 def _clear_component_states():
@@ -687,6 +741,18 @@ with st.sidebar:
         st.success(f"✅ PDF geladen ({total_pages} Seiten)")
 
     st.divider()
+    # ── Projekt laden ──────────────────────────────────────────────────────
+    st.caption("📁 Projekt laden (.ctpro)")
+    proj_upload = st.file_uploader("Projekt laden", type=["ctpro"], label_visibility="collapsed",
+                                   key="proj_uploader")
+    if proj_upload is not None:
+        try:
+            _load_project(proj_upload.read())
+            st.rerun()
+        except Exception as _e:
+            st.error(f"Projekt konnte nicht geladen werden: {_e}")
+
+    st.divider()
 
     # ── Search ─────────────────────────────────────────────────────────────
     search_input = st.text_input(
@@ -964,6 +1030,15 @@ with st.sidebar:
                 mime="application/pdf",
                 use_container_width=True,
             )
+
+        st.divider()
+        st.download_button(
+            "💾 Projekt speichern (.ctpro)",
+            data=_build_project_zip(),
+            file_name=f"projekt_{datetime.date.today()}.ctpro",
+            mime="application/octet-stream",
+            use_container_width=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
