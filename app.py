@@ -413,23 +413,21 @@ def _place_label(occupied, x0, y0, box_w, box_h):
 
 
 def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
-    """Draw background rect_annot + text directly into page stream.
+    """Draw background rect_annot + centered freetext_annot on `page`.
     rotate=0 → horizontal label; rotate=90 → vertical label."""
     bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
     bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
     bg_ann.set_border(width=0)
     bg_ann.update()
     if rotate == 0:
-        # insert_text writes into page content stream — always upright regardless of /Rotate
-        # baseline = bottom of text; center it vertically in the box
-        baseline_y = y0 + box_h / 2 + fs * 0.35
-        page.insert_text(
-            fitz.Point(x0 + pad_h, baseline_y),
-            text,
-            fontsize=fs,
-            fontname="helv",
-            color=(0, 0, 0),
-            overlay=True,
+        bg_center = y0 + box_h / 2
+        txt_y0 = bg_center - fs / 2
+        txt_y1 = bg_center + fs / 2
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=0, align=1,
         )
     else:
         txt_ann = page.add_freetext_annot(
@@ -438,8 +436,8 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
             text_color=(0, 0, 0), fill_color=None,
             rotate=rotate, align=1,
         )
-        txt_ann.set_border(width=0)
-        txt_ann.update()
+    txt_ann.set_border(width=0)
+    txt_ann.update()
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
