@@ -408,21 +408,31 @@ def _place_label(occupied, x0, y0, box_w, box_h):
     return x0, y0 - box_h * 2 - 2
 
 
-def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h):
-    """Draw background rect_annot + centered freetext_annot on `page`."""
+def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
+    """Draw background rect_annot + centered freetext_annot on `page`.
+    rotate=0 → horizontal label; rotate=90 → vertical (bottom-to-top) label."""
     bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
     bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
     bg_ann.set_border(width=0)
     bg_ann.update()
-    bg_center = y0 + box_h / 2
-    txt_y0 = bg_center - fs / 2
-    txt_y1 = bg_center + fs / 2
-    txt_ann = page.add_freetext_annot(
-        fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
-        text, fontsize=fs, fontname="Helv",
-        text_color=(0, 0, 0), fill_color=None,
-        rotate=0, align=1,
-    )
+    if rotate == 0:
+        bg_center = y0 + box_h / 2
+        txt_y0 = bg_center - fs / 2
+        txt_y1 = bg_center + fs / 2
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=0, align=1,
+        )
+    else:
+        # Vertical label: fitz rotate=90 draws text bottom-to-top within the rect
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=rotate, align=1,
+        )
     txt_ann.set_border(width=0)
     txt_ann.update()
 
@@ -480,15 +490,28 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
         fs = 9
         pad_h, pad_v = 3, 2
         tw = fitz.get_text_length(text, fontname="helv", fontsize=fs)
-        box_w = tw + pad_h * 2
-        box_h = fs + pad_v * 2
+        box_w = tw + pad_h * 2   # width for horizontal label
+        box_h = fs + pad_v * 2   # height for horizontal label
+        # Detect orientation: rect significantly taller than wide → vertical text
+        r_w = float(r[2]) - float(r[0])
+        r_h = float(r[3]) - float(r[1])
+        vertical = r_h > r_w * 1.5
+        draw_bw = box_h if vertical else box_w  # narrow dim when vertical
+        draw_bh = box_w if vertical else box_h  # tall dim when vertical
         if kabel.get("label_pos_fitz"):
             lx = float(kabel["label_pos_fitz"][0])
             ly = float(kabel["label_pos_fitz"][1])
         else:
-            lx, ly = _place_label(occupied, float(r[0]), float(r[1]), box_w, box_h)
-        occupied.append((lx, ly, lx + box_w, ly + box_h))
-        _draw_label_annot(page, lx, ly, box_w, box_h, fill_rgb, text, fs, pad_h)
+            if vertical:
+                # Start to the left of the text, same top edge
+                ax = float(r[0]) - draw_bw - 1
+                ay = float(r[1]) + draw_bh + 1
+            else:
+                ax, ay = float(r[0]), float(r[1])
+            lx, ly = _place_label(occupied, ax, ay, draw_bw, draw_bh)
+        occupied.append((lx, ly, lx + draw_bw, ly + draw_bh))
+        _draw_label_annot(page, lx, ly, draw_bw, draw_bh, fill_rgb, text, fs, pad_h,
+                          rotate=90 if vertical else 0)
 
     mat = fitz.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -535,29 +558,40 @@ def _get_label_handles(kabel_fields_snap, page_num, zoom, ph):
       img_w = box_h * zoom, img_h = box_w * zoom
     """
     handles = []
-    box_h = 14  # label box height in fitz pts (matches render_page)
+    fs = 9
+    pad_h, pad_v = 3, 2
     for kabel in kabel_fields_snap:
-        if kabel.get("page", 0) != page_num:
+        if kabel.get("page_num", kabel.get("page", 0)) != page_num:
             continue
         text = kabel.get("label", "") or kabel.get("bezeichnung", "")
         if not text:
             continue
-        tw = fitz.get_text_length(text, fontname="helv", fontsize=9)
-        box_w = tw + 3 * 2
+        r = kabel.get("rect") or kabel.get("position") or []
+        tw = fitz.get_text_length(text, fontname="helv", fontsize=fs)
+        box_w = tw + pad_h * 2
+        box_h = fs + pad_v * 2
+        # Match orientation logic from render_page
+        if len(r) >= 4:
+            r_w = float(r[2]) - float(r[0])
+            r_h = float(r[3]) - float(r[1])
+            vertical = r_h > r_w * 1.5
+        else:
+            vertical = False
+        draw_bw = box_h if vertical else box_w
+        draw_bh = box_w if vertical else box_h
         if kabel.get("label_pos_fitz"):
             lx = float(kabel["label_pos_fitz"][0])
             ly = float(kabel["label_pos_fitz"][1])
         else:
-            r = kabel.get("rect") or kabel.get("position") or []
             if len(r) < 2:
                 continue
             lx = float(r[1]) - box_h - 2
             ly = float(r[0])
         img_x = round(ly * zoom, 1)
-        img_y = round((ph - lx - box_w) * zoom, 1)
-        img_w = round(box_h * zoom, 1)
-        img_h = round(box_w * zoom, 1)
-        fill_hex = kabel.get("fill_hex", "#fffde7")
+        img_y = round((ph - lx - draw_bw) * zoom, 1)
+        img_w = round(draw_bh * zoom, 1)
+        img_h = round(draw_bw * zoom, 1)
+        fill_hex = kabel.get("label_bg_color", "#fffde7")
         handles.append({
             "_id":     kabel.get("_id"),
             "text":    text,
