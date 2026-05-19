@@ -408,31 +408,19 @@ def _place_label(occupied, x0, y0, box_w, box_h):
     return x0, y0 - box_h * 2 - 2
 
 
-def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
+def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=270):
     """Draw background rect_annot + centered freetext_annot on `page`.
-    rotate=0 → horizontal label; rotate=90 → vertical (bottom-to-top) label."""
+    rotate=270 → horizontal label on /Rotate=90 page; rotate=90 → vertical label."""
     bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
     bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
     bg_ann.set_border(width=0)
     bg_ann.update()
-    if rotate == 0:
-        bg_center = y0 + box_h / 2
-        txt_y0 = bg_center - fs / 2
-        txt_y1 = bg_center + fs / 2
-        txt_ann = page.add_freetext_annot(
-            fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
-            text, fontsize=fs, fontname="Helv",
-            text_color=(0, 0, 0), fill_color=None,
-            rotate=180, align=1,
-        )
-    else:
-        # Vertical label: fitz rotate=90 draws text bottom-to-top within the rect
-        txt_ann = page.add_freetext_annot(
-            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            text, fontsize=fs, fontname="Helv",
-            text_color=(0, 0, 0), fill_color=None,
-            rotate=rotate, align=1,
-        )
+    txt_ann = page.add_freetext_annot(
+        fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+        text, fontsize=fs, fontname="Helv",
+        text_color=(0, 0, 0), fill_color=None,
+        rotate=rotate, align=1,
+    )
     txt_ann.set_border(width=0)
     txt_ann.update()
 
@@ -511,7 +499,7 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
             lx, ly = _place_label(occupied, ax, ay, draw_bw, draw_bh)
         occupied.append((lx, ly, lx + draw_bw, ly + draw_bh))
         _draw_label_annot(page, lx, ly, draw_bw, draw_bh, fill_rgb, text, fs, pad_h,
-                          rotate=90 if vertical else 0)
+                          rotate=90 if vertical else 270)
 
     mat = fitz.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=mat, alpha=False)
