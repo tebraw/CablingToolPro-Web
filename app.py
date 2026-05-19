@@ -423,7 +423,7 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
             fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
             text, fontsize=fs, fontname="Helv",
             text_color=(0, 0, 0), fill_color=None,
-            rotate=0, align=1,
+            rotate=180, align=1,
         )
     else:
         # Vertical label: fitz rotate=90 draws text bottom-to-top within the rect
