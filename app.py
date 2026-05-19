@@ -516,7 +516,7 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
             lx, ly = _place_label(occupied, ax, ay, draw_bw, draw_bh)
         occupied.append((lx, ly, lx + draw_bw, ly + draw_bh))
         _draw_label_annot(page, lx, ly, draw_bw, draw_bh, fill_rgb, text, fs, pad_h,
-                          rotate=90 if vertical else 0)
+                          rotate=270 if vertical else 0)
 
     mat = fitz.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=mat, alpha=False)
