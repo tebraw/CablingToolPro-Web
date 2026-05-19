@@ -482,6 +482,7 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
             a.update()
 
     occupied = []   # list of (x0, y0, x1, y1) already placed label boxes
+    h_labels = []    # horizontal labels drawn via PIL after rendering
     for kabel in kabel_fields:
         if kabel["page_num"] != page_num or not kabel.get("checked", True):
             continue
@@ -513,13 +514,64 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
                 ax, ay = float(r[0]), float(r[1])
             lx, ly = _place_label(occupied, ax, ay, draw_bw, draw_bh)
         occupied.append((lx, ly, lx + draw_bw, ly + draw_bh))
-        _draw_label_annot(page, lx, ly, draw_bw, draw_bh, fill_rgb, text, fs, pad_h,
-                          rotate=90 if vertical else 0)
+        if vertical:
+            _draw_label_annot(page, lx, ly, draw_bw, draw_bh, fill_rgb, text, fs, pad_h,
+                              rotate=90)
+        else:
+            # Background rect only — text is painted via PIL after rendering (always upright)
+            bg_ann = page.add_rect_annot(fitz.Rect(lx, ly, lx + draw_bw, ly + draw_bh))
+            bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
+            bg_ann.set_border(width=0)
+            bg_ann.update()
+            h_labels.append((lx, ly, draw_bw, draw_bh, text))
 
     mat = fitz.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=mat, alpha=False)
     doc.close()
-    return pix.tobytes("png")
+    png_bytes = pix.tobytes("png")
+
+    if h_labels:
+        from PIL import Image, ImageDraw, ImageFont
+        import io as _io
+        img = Image.open(_io.BytesIO(png_bytes))
+        drw = ImageDraw.Draw(img)
+        font_size = round(fs * zoom)
+        font = None
+        for _fp in [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/calibri.ttf",
+        ]:
+            try:
+                font = ImageFont.truetype(_fp, font_size)
+                break
+            except Exception:
+                pass
+        if font is None:
+            try:
+                font = ImageFont.load_default(size=font_size)
+            except TypeError:
+                font = ImageFont.load_default()
+        for (lx, ly, bw, bh, txt) in h_labels:
+            px = round(lx * zoom)
+            py = round(ly * zoom)
+            pw = round(bw * zoom)
+            ph_ = round(bh * zoom)
+            try:
+                bb = drw.textbbox((0, 0), txt, font=font)
+                tw_, th_ = bb[2] - bb[0], bb[3] - bb[1]
+            except AttributeError:
+                tw_, th_ = len(txt) * font_size // 2, font_size
+            tx = px + (pw - tw_) // 2
+            ty = py + (ph_ - th_) // 2
+            drw.text((tx, ty), txt, fill=(0, 0, 0), font=font)
+        out = _io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+
+    return png_bytes
 
 
 # ─────────────────────────────────────────────────────────────────────────────
