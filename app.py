@@ -413,16 +413,15 @@ def _place_label(occupied, x0, y0, box_w, box_h):
 
 
 def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
-    """Horizontal (rotate=0): draw_rect + insert_text directly into the content stream
-    so the text is always upright regardless of page /Rotate.
-    Vertical (rotate=90): annotation-based path which already works correctly."""
+    """Background rect always drawn via add_rect_annot.
+    Horizontal text (rotate=0): insert_text into content stream — always upright.
+    Vertical text (rotate=90): add_freetext_annot — works correctly as before."""
+    bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
+    bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
+    bg_ann.set_border(width=0)
+    bg_ann.update()
     if rotate == 0:
-        # Content-stream drawing — never affected by page rotation
-        page.draw_rect(
-            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            color=fill_rgb, fill=fill_rgb, width=0,
-        )
-        # baseline: vertically centred inside the box
+        # insert_text writes into the content stream — always upright on any /Rotate page
         baseline_y = y0 + box_h / 2 + fs * 0.3
         page.insert_text(
             fitz.Point(x0 + pad_h, baseline_y),
@@ -433,16 +432,14 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
             overlay=True,
         )
     else:
-        # Vertical annotation path (works correctly for rotate=90)
-        bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
-        bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
-        bg_ann.set_border(width=0)
-        bg_ann.update()
         txt_ann = page.add_freetext_annot(
             fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
             text, fontsize=fs, fontname="Helv",
             text_color=(0, 0, 0), fill_color=None,
             rotate=rotate, align=1,
+        )
+        txt_ann.set_border(width=0)
+        txt_ann.update()
         )
         txt_ann.set_border(width=0)
         txt_ann.update()
