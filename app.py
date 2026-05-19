@@ -413,23 +413,31 @@ def _place_label(occupied, x0, y0, box_w, box_h):
 
 
 def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
-    """Background via draw_rect + text via insert_textbox.
-    Works in canonical display coordinates regardless of /Rotate on the page.
-    rotate=0: horizontal label; rotate=90: vertical label (CCW, reads bottom-to-top)."""
-    page.draw_rect(
-        fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-        color=fill_rgb, fill=fill_rgb, width=0,
-    )
-    page.insert_textbox(
-        fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-        text,
-        fontsize=fs,
-        fontname="helv",
-        color=(0, 0, 0),
-        align=1,
-        rotate=rotate,
-        overlay=True,
-    )
+    """Draw background rect_annot + centered freetext_annot on `page`.
+    rotate=0 → horizontal label; rotate=90 → vertical label."""
+    bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
+    bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
+    bg_ann.set_border(width=0)
+    bg_ann.update()
+    if rotate == 0:
+        bg_center = y0 + box_h / 2
+        txt_y0 = bg_center - fs / 2
+        txt_y1 = bg_center + fs / 2
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=0, align=1,
+        )
+    else:
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=rotate, align=1,
+        )
+    txt_ann.set_border(width=0)
+    txt_ann.update()
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
