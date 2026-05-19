@@ -440,9 +440,6 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
         )
         txt_ann.set_border(width=0)
         txt_ann.update()
-        )
-        txt_ann.set_border(width=0)
-        txt_ann.update()
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
