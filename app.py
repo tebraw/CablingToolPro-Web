@@ -259,10 +259,11 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
                     bb = fitz.Rect(span["bbox"])
                     c = span.get("color", 0)
                     hex_c = "#%02x%02x%02x" % ((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF)
-                    lines.append((txt, bb, hex_c))
+                    d = span.get("dir", (1, 0))
+                    lines.append((txt, bb, hex_c, d))
 
         rj_hits = []
-        for txt, bb, _ in lines:
+        for txt, bb, _, _d in lines:
             norm = re.sub(r"\s+", "", txt.lower())
             if s2x and any(re.search(p, norm) for p in pat2):
                 rj_hits.append({"type": "2x RJ45", "rect": bb, "used": False, "kabel_typ": "2x RJ45"})
@@ -279,19 +280,20 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
                 rj_hits.append({"type": "RJ45", "rect": bb, "used": False, "kabel_typ": "RJ45"})
         rj_hits_dict[pnum] = rj_hits
 
-        for txt, bb, color_hex in lines:
+        for txt, bb, color_hex, span_dir in lines:
             for term in terms:
                 if term.lower() in txt.lower():
                     ukv_hits[term.lower()].append({
                         "txt": txt, "bb": bb, "page_num": pnum,
                         "is_combined": False, "color_hex": color_hex,
+                        "span_dir": list(span_dir),
                     })
 
         # 2-line combined search
         i = 0
         while i < len(lines) - 1:
-            txt1, bb1, hex1 = lines[i]
-            txt2, bb2, _ = lines[i + 1]
+            txt1, bb1, hex1, dir1 = lines[i]
+            txt2, bb2, _, _d2 = lines[i + 1]
             combined = f"{txt1} {txt2}"
             found = False
             for term in terms:
@@ -307,6 +309,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
                     ukv_hits[term.lower()].append({
                         "txt": combined, "bb": union, "page_num": pnum,
                         "is_combined": True, "color_hex": hex1,
+                        "span_dir": list(dir1),
                     })
                     found = True
                     break
@@ -375,6 +378,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
                 "label_bg_color": bg_hex,
                 "checked": True,
                 "_id": _new_id(),
+                "span_dir": hit.get("span_dir", [1.0, 0.0]),
             })
 
     return kabel_fields, annotations
@@ -408,19 +412,33 @@ def _place_label(occupied, x0, y0, box_w, box_h):
     return x0, y0 - box_h * 2 - 2
 
 
-def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=270):
+def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
     """Draw background rect_annot + centered freetext_annot on `page`.
-    rotate=270 → horizontal label on /Rotate=90 page; rotate=90 → vertical label."""
+    rotate=0  → horizontal label (original behaviour, tight rect).
+    rotate=90 → vertical label (full rect, text goes upward)."""
     bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
     bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
     bg_ann.set_border(width=0)
     bg_ann.update()
-    txt_ann = page.add_freetext_annot(
-        fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-        text, fontsize=fs, fontname="Helv",
-        text_color=(0, 0, 0), fill_color=None,
-        rotate=rotate, align=1,
-    )
+    if rotate == 0:
+        # Original working path: tight rect centred vertically in the box
+        bg_center = y0 + box_h / 2
+        txt_y0 = bg_center - fs / 2
+        txt_y1 = bg_center + fs / 2
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0 + pad_h, txt_y0, x0 + box_w - pad_h, txt_y1),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=0, align=1,
+        )
+    else:
+        # Vertical path: full rect
+        txt_ann = page.add_freetext_annot(
+            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+            text, fontsize=fs, fontname="Helv",
+            text_color=(0, 0, 0), fill_color=None,
+            rotate=rotate, align=1,
+        )
     txt_ann.set_border(width=0)
     txt_ann.update()
 
@@ -480,10 +498,11 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
         tw = fitz.get_text_length(text, fontname="helv", fontsize=fs)
         box_w = tw + pad_h * 2   # width for horizontal label
         box_h = fs + pad_v * 2   # height for horizontal label
-        # Detect orientation: rect significantly taller than wide → vertical text
-        r_w = float(r[2]) - float(r[0])
-        r_h = float(r[3]) - float(r[1])
-        vertical = r_h > r_w * 1.5
+        # Detect orientation from stored span direction vector
+        sd = kabel.get("span_dir", [1.0, 0.0])
+        # |dx| > |dy| means text runs left/right in page space → horizontal on screen
+        # |dy| > |dx| means text runs up/down in page space → vertical on screen
+        vertical = abs(sd[1]) > abs(sd[0])
         draw_bw = box_h if vertical else box_w  # narrow dim when vertical
         draw_bh = box_w if vertical else box_h  # tall dim when vertical
         if kabel.get("label_pos_fitz"):
