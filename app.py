@@ -420,7 +420,7 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
         # Content stream: background then text (same layer, text stays on top)
         page.draw_rect(
             fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            color=fill_rgb, fill=fill_rgb, width=0,
+            color=None, fill=fill_rgb,
         )
         baseline_y = y0 + box_h / 2 + fs * 0.3
         page.insert_text(
