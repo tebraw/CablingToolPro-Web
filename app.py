@@ -425,7 +425,7 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
-def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1.5):
+def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1.5, _cache_v=3):
     kabel_fields = json.loads(kabel_fields_json)
     annotations  = json.loads(annotations_json)
     doc = fitz.open(stream=doc_bytes, filetype="pdf")
@@ -1249,6 +1249,7 @@ else:
         json.dumps(st.session_state.kabel_fields_snap, sort_keys=True),
         json.dumps(st.session_state.annotations_snap,  sort_keys=True),
         zoom=st.session_state.zoom,
+        _cache_v=3,
     )
 
     img_b64 = base64.b64encode(img_bytes).decode()
