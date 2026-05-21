@@ -432,11 +432,11 @@ def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rot
             overlay=True,
         )
     else:
-        # Annotation layer for vertical — unchanged from what works
-        bg_ann = page.add_rect_annot(fitz.Rect(x0, y0, x0 + box_w, y0 + box_h))
-        bg_ann.set_colors(fill=fill_rgb, stroke=fill_rgb)
-        bg_ann.set_border(width=0)
-        bg_ann.update()
+        # Content stream box (always visible), annotation for rotated text
+        page.draw_rect(
+            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+            color=None, fill=fill_rgb,
+        )
         txt_ann = page.add_freetext_annot(
             fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
             text, fontsize=fs, fontname="Helv",
