@@ -413,38 +413,15 @@ def _place_label(occupied, x0, y0, box_w, box_h):
 
 
 def _draw_label_annot(page, x0, y0, box_w, box_h, fill_rgb, text, fs, pad_h, rotate=0):
-    """Horizontal (rotate=0): draw_rect + insert_text — both content stream, so text is
-    never covered by the background and is always upright regardless of page /Rotate.
-    Vertical (rotate=270): add_rect_annot + add_freetext_annot — annotation layer, unchanged."""
-    if rotate == 0:
-        # Content stream: background then text (same layer, text stays on top)
-        page.draw_rect(
-            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            color=None, fill=fill_rgb,
-        )
-        baseline_y = y0 + box_h / 2 + fs * 0.3
-        page.insert_text(
-            fitz.Point(x0 + pad_h, baseline_y),
-            text,
-            fontsize=fs,
-            fontname="helv",
-            color=(0, 0, 0),
-            overlay=True,
-        )
-    else:
-        # Content stream box (always visible), annotation for rotated text
-        page.draw_rect(
-            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            color=None, fill=fill_rgb,
-        )
-        txt_ann = page.add_freetext_annot(
-            fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
-            text, fontsize=fs, fontname="Helv",
-            text_color=(0, 0, 0), fill_color=None,
-            rotate=rotate, align=1,
-        )
-        txt_ann.set_border(width=0)
-        txt_ann.update()
+    """Single freetext annotation with fill_color background — no separate box drawing."""
+    ann = page.add_freetext_annot(
+        fitz.Rect(x0, y0, x0 + box_w, y0 + box_h),
+        text, fontsize=fs, fontname="Helv",
+        text_color=(0, 0, 0), fill_color=fill_rgb,
+        rotate=rotate, align=1,
+    )
+    ann.set_border(width=0)
+    ann.update()
 
 
 @st.cache_data(show_spinner=False, max_entries=30)
