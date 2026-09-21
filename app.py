@@ -104,6 +104,7 @@ def _init():
         "setting_rj45": True,
         "setting_2xukv": False,
         "setting_2_only": False,
+        "setting_only_doppelsteckdosen": False,
         "export_pdf_bytes": None,
         "search_ran": False,
         "_id_seq": 0,
@@ -202,6 +203,7 @@ def _build_project_zip():
             "setting_rj45":     st.session_state.setting_rj45,
             "setting_2xukv":    st.session_state.setting_2xukv,
             "setting_2_only":   st.session_state.setting_2_only,
+            "setting_only_doppelsteckdosen": st.session_state.setting_only_doppelsteckdosen,
         },
         "_id_seq": st.session_state["_id_seq"],
     }
@@ -230,6 +232,7 @@ def _load_project(zip_bytes):
     st.session_state.setting_rj45     = settings.get("setting_rj45",     True)
     st.session_state.setting_2xukv    = settings.get("setting_2xukv",    False)
     st.session_state.setting_2_only   = settings.get("setting_2_only",   False)
+    st.session_state.setting_only_doppelsteckdosen = settings.get("setting_only_doppelsteckdosen", False)
     # Restore ID counter so new IDs never collide with loaded ones
     existing_ids = [k.get("_id", 0) for k in st.session_state.kabel_fields]
     st.session_state["_id_seq"] = max(existing_ids + [meta.get("_id_seq", 0)])
@@ -253,7 +256,7 @@ def _clear_component_states():
 # Core search logic (ported from AcrobatViewer.search_and_highlight)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
+def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False, only_doppelsteckdosen=False):
     pat2 = [r"2x\s*rj\s*45", r"2\s*x\s*rj\s*45", r"2xrj45", r"2 x rj45"]
     pat2_short = [r"\b2x\b"]
     pat1 = [r"rj\s*45", r"rj45"]
@@ -395,6 +398,8 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
                     col = "green"
                     cnt += 2
                 else:
+                    if only_doppelsteckdosen:
+                        continue
                     cable_label = kabel_label_alpha(cnt)
                     kabel_typ = "RJ45"
                     col = "blue"
@@ -407,6 +412,8 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
                 })
                 closest["used"] = True
             else:
+                if only_doppelsteckdosen:
+                    continue
                 cable_label = kabel_label_alpha(cnt)
                 kabel_typ = None
                 cnt += 1
@@ -959,7 +966,19 @@ with st.sidebar:
         st.session_state.setting_2xukv = s2xu
         st.session_state.setting_2_only = s2o
 
-    do_search = st.button("🔍 Suchen und markieren", use_container_width=True, type="primary")
+    col_search, col_doppelt = st.columns([3, 2])
+    with col_search:
+        do_search = st.button("🔍 Suchen und markieren", use_container_width=True, type="primary")
+    with col_doppelt:
+        s_only_doppel = st.checkbox(
+            "Nur Doppelsteckdosen erlauben",
+            value=st.session_state.setting_only_doppelsteckdosen,
+            key="s_only_doppel",
+            help="Wenn aktiv, wird nur dort eine Beschriftung erzeugt, wo eine der "
+                 "angekreuzten 2x-Erkennungen (z.B. '2 erkennen') tatsächlich einen "
+                 "Treffer liefert. Ohne Treffer wird keine Beschriftung erstellt.",
+        )
+        st.session_state.setting_only_doppelsteckdosen = s_only_doppel
 
     if do_search:
         if not st.session_state.doc_bytes:
@@ -976,6 +995,7 @@ with st.sidebar:
                     st.session_state.setting_rj45,
                     st.session_state.setting_2xukv,
                     st.session_state.setting_2_only,
+                    st.session_state.setting_only_doppelsteckdosen,
                 )
             _clear_label_widgets()
             st.session_state.kabel_fields = kf
