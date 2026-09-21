@@ -823,6 +823,21 @@ st.markdown("""
     .stButton > button[kind="primary"]:hover { background-color: #1e7e34; }
     .cable-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
     .color-dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+    #pdf-navbar .stButton > button {
+        background-color: #3a3f44 !important;
+        color: #ffffff !important;
+        border: 1px solid #6c757d !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        padding: 4px 0 !important;
+    }
+    #pdf-navbar .stButton > button:hover {
+        background-color: #52585e !important;
+        border-color: #adb5bd !important;
+    }
+    #pdf-navbar .stButton > button:disabled {
+        opacity: 0.35 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1225,6 +1240,7 @@ else:
     doc_tmp.close()
 
     # Page navigation bar
+    st.markdown('<div id="pdf-navbar">', unsafe_allow_html=True)
     nav1, nav2, nav3, nav4, nav5 = st.columns([1, 1, 2, 1, 3])
     with nav1:
         if st.button("◀", disabled=st.session_state.current_page == 0):
@@ -1263,6 +1279,7 @@ else:
                 if target != st.session_state.current_page:
                     st.session_state.current_page = target
                     st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # Sync current label values into kabel_fields before rendering
     for i, k in enumerate(st.session_state.kabel_fields):
