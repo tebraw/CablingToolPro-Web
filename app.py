@@ -74,6 +74,19 @@ def hex_to_fitz_color(hex_color):
     return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
 
 
+def _colors_close(hex_a, hex_b, tol=40):
+    """True if two '#rrggbb' colors are close enough to be considered 'the same'
+    (allows for anti-aliasing / color-space rounding differences)."""
+    try:
+        a = hex_a.lstrip("#")
+        b = hex_b.lstrip("#")
+        ar, ag, ab = int(a[0:2], 16), int(a[2:4], 16), int(a[4:6], 16)
+        br, bg, bb = int(b[0:2], 16), int(b[2:4], 16), int(b[4:6], 16)
+        return abs(ar - br) <= tol and abs(ag - bg) <= tol and abs(ab - bb) <= tol
+    except Exception:
+        return hex_a == hex_b
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Session state initialisation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -341,7 +354,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
             for rj in rj_hits:
                 if rj["used"]:
                     continue
-                if rj["type"] == "2" and rj.get("color_hex") != hit["color_hex"]:
+                if rj["type"] == "2" and not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
                     continue
                 d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
                 if d < 70 and d < md:
