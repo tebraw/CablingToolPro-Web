@@ -336,6 +336,43 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
 
     doc.close()
 
+    # ── Global nearest-neighbor assignment of RJ45/2x/"2" hits to search hits ──
+    # Processing hits one-by-one in an arbitrary order let a farther hit "steal"
+    # an RJ45/2x/"2" candidate before a genuinely closer hit got a chance to
+    # claim it. Instead, collect every valid (hit, rj) candidate pair across
+    # the whole page, sort by distance, and assign greedily starting with the
+    # globally closest pairs so the nearest hit always wins its match.
+    from collections import defaultdict
+    all_hits_by_page = defaultdict(list)
+    for term in terms:
+        for hit in ukv_hits.get(term.lower(), []):
+            all_hits_by_page[hit["page_num"]].append(hit)
+
+    assigned = {}
+    for pnum, page_hits in all_hits_by_page.items():
+        rj_hits = rj_hits_dict.get(pnum, [])
+        candidates = []
+        for hit in page_hits:
+            bb = hit["bb"]
+            for rj in rj_hits:
+                if rj["type"] == "2":
+                    if not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
+                        continue
+                    max_dist = 150
+                else:
+                    max_dist = 70
+                d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
+                if d < max_dist:
+                    candidates.append((d, id(hit), id(rj), hit, rj))
+        candidates.sort(key=lambda c: c[0])
+        used_hit_ids = set()
+        for d, hit_id, rj_id, hit, rj in candidates:
+            if hit_id in used_hit_ids or rj["used"]:
+                continue
+            assigned[hit_id] = rj
+            rj["used"] = True
+            used_hit_ids.add(hit_id)
+
     kabel_fields = []
     annotations = []
 
@@ -349,27 +386,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
             pnum = hit["page_num"]
             bb = hit["bb"]
 
-            rj_hits = rj_hits_dict[pnum]
-            closest, md = None, float("inf")
-            # First pass: prefer a color-matching "2" hit — it must win over any
-            # other, possibly-closer, unrelated RJ45/2x hit so a valid double
-            # socket is never missed in favor of an incidental nearby match.
-            for rj in rj_hits:
-                if rj["used"] or rj["type"] != "2":
-                    continue
-                if not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
-                    continue
-                d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
-                if d < 150 and d < md:
-                    closest, md = rj, d
-
-            if closest is None:
-                for rj in rj_hits:
-                    if rj["used"] or rj["type"] == "2":
-                        continue
-                    d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
-                    if d < 70 and d < md:
-                        closest, md = rj, d
+            closest = assigned.get(id(hit))
 
             if closest:
                 if "2x" in closest["type"] or closest["type"] == "2":
