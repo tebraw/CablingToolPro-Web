@@ -894,7 +894,7 @@ with st.sidebar:
         s1x = st.checkbox("RJ 45 erkennen", value=st.session_state.setting_rj45, key="s1x")
         s2xu = st.checkbox("2x UKV erkennen", value=st.session_state.setting_2xukv, key="s2xu")
         s2o = st.checkbox(
-            "\"2\" erkennen (nur gleiche Farbe wie Suchbegriff)",
+            "2 erkennen (nur gleiche Farbe wie Suchbegriff)",
             value=st.session_state.setting_2_only, key="s2o",
         )
         st.session_state.setting_2x_rj45 = s2x
