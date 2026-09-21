@@ -356,8 +356,9 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
                     continue
                 if rj["type"] == "2" and not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
                     continue
+                max_dist = 150 if rj["type"] == "2" else 70
                 d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
-                if d < 70 and d < md:
+                if d < max_dist and d < md:
                     closest, md = rj, d
 
             if closest:
