@@ -562,7 +562,7 @@ def render_page(doc_bytes, page_num, kabel_fields_json, annotations_json, zoom=1
 def apply_labels(kabel_fields, terms):
     cnt_dict = {t.lower(): 0 for t in terms}
     for k in kabel_fields:
-        if not k.get("checked", True):
+        if not k.get("checked", True) or k.get("_pending_delete"):
             continue
         term_lower = k.get("term", "").lower()
         cnt = cnt_dict.get(term_lower, 0)
@@ -1004,6 +1004,16 @@ with st.sidebar:
                 st.rerun()
         with col_b:
             if st.button("\U0001f58a\ufe0f PDF updaten", use_container_width=True, type="primary"):
+                pending_ids = {
+                    k.get("_id") for k in st.session_state.kabel_fields
+                    if k.get("_pending_delete")
+                }
+                if pending_ids:
+                    st.session_state.kabel_fields = [
+                        k for k in st.session_state.kabel_fields
+                        if k.get("_id") not in pending_ids
+                    ]
+                    apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
                 st.session_state.kabel_fields_snap = copy.deepcopy(st.session_state.kabel_fields)
                 st.session_state.annotations_snap  = list(st.session_state.annotations)
                 st.session_state.pdf_dirty = False
@@ -1035,6 +1045,8 @@ with st.sidebar:
         terms_order = st.session_state.search_terms
         grouped: dict = {t: [] for t in terms_order}
         for i, k in enumerate(st.session_state.kabel_fields):
+            if k.get("_pending_delete"):
+                continue
             term = k.get("term", "")
             grouped.setdefault(term, []).append((i, k))
 
@@ -1157,20 +1169,19 @@ with st.sidebar:
                             entry["ukv_text"] = new_ukv
 
                         if len(result_ids) < len(orig_ids):
-                            # ── Deletion ──────────────────────────────────
+                            # Deletion: stage only — mark rows pending-delete
+                            # instead of removing them immediately. They're
+                            # hidden from the list right away but stay in
+                            # kabel_fields (and keep their numbering) until the
+                            # user clicks "PDF updaten", which is when they're
+                            # actually removed and everything renumbered.
                             valid_deletable = set(prev_sent_ids) if prev_sent_ids else set(orig_ids)
                             deleted_ids = (set(orig_ids) - set(result_ids)) & valid_deletable
                             if deleted_ids:
-                                st.session_state.kabel_fields = [
-                                    k for k in kf
-                                    if k.get("_id") not in deleted_ids
-                                    or k.get("term", "") != term
-                                ]
+                                for k in kf:
+                                    if k.get("_id") in deleted_ids and k.get("term", "") == term:
+                                        k["_pending_delete"] = True
                                 _clear_component_states()
-                                apply_labels(
-                                    st.session_state.kabel_fields,
-                                    st.session_state.search_terms,
-                                )
                                 changed = True
 
                         if changed:
@@ -1180,9 +1191,12 @@ with st.sidebar:
 
         # ── Export ─────────────────────────────────────────────────────────
         st.divider()
+        _export_fields = [
+            k for k in st.session_state.kabel_fields if not k.get("_pending_delete")
+        ]
         active_count = sum(
             len([p for p in k["label"].split("/") if p.strip()])
-            for k in st.session_state.kabel_fields
+            for k in _export_fields
             if k.get("checked", True)
         )
         preis = staffelpreis(active_count)
@@ -1192,7 +1206,7 @@ with st.sidebar:
         def sync_labels():
             pass
 
-        excel_bytes   = build_excel(st.session_state.kabel_fields)
+        excel_bytes   = build_excel(_export_fields)
         excel_filename = f"kabelliste_{datetime.date.today()}.xlsx"
 
         def _on_excel_download():
@@ -1219,7 +1233,7 @@ with st.sidebar:
             with st.spinner("PDF wird erstellt…"):
                 pdf_out = build_annotated_pdf(
                     st.session_state.doc_bytes,
-                    st.session_state.kabel_fields,
+                    _export_fields,
                     st.session_state.annotations,
                 )
             st.session_state.export_pdf_bytes = pdf_out
