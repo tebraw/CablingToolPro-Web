@@ -351,15 +351,25 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
 
             rj_hits = rj_hits_dict[pnum]
             closest, md = None, float("inf")
+            # First pass: prefer a color-matching "2" hit — it must win over any
+            # other, possibly-closer, unrelated RJ45/2x hit so a valid double
+            # socket is never missed in favor of an incidental nearby match.
             for rj in rj_hits:
-                if rj["used"]:
+                if rj["used"] or rj["type"] != "2":
                     continue
-                if rj["type"] == "2" and not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
+                if not _colors_close(rj.get("color_hex", ""), hit["color_hex"]):
                     continue
-                max_dist = 150 if rj["type"] == "2" else 70
                 d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
-                if d < max_dist and d < md:
+                if d < 150 and d < md:
                     closest, md = rj, d
+
+            if closest is None:
+                for rj in rj_hits:
+                    if rj["used"] or rj["type"] == "2":
+                        continue
+                    d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
+                    if d < 70 and d < md:
+                        closest, md = rj, d
 
             if closest:
                 if "2x" in closest["type"] or closest["type"] == "2":
