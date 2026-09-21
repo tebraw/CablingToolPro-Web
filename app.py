@@ -361,7 +361,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
                     closest, md = rj, d
 
             if closest:
-                if "2x" in closest["type"]:
+                if "2x" in closest["type"] or closest["type"] == "2":
                     cable_label = f"{kabel_label_alpha(cnt)}/{kabel_label_alpha(cnt + 1)}"
                     kabel_typ = "2x RJ45"
                     col = "green"
