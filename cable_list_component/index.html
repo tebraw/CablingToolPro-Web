@@ -92,6 +92,22 @@ body {
 }
 .del-btn:hover { color: #ff4b4b; }
 
+.add-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  color: #7eeaff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+.add-btn:hover { background: rgba(126,234,255,0.15); color: #ffffff; }
+
 .empty {
   color: #555;
   font-size: 12px;
@@ -168,38 +184,6 @@ body {
   border-color: #4a8cdd;
   background: rgba(74,140,221,0.09);
   color: #fafafa;
-}
-
-@media (max-width: 768px) {
-  body {
-    font-size: 14px;
-    padding-bottom: 8px;
-  }
-  .row {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 7px 6px;
-  }
-  .cb-wrap input[type=checkbox] {
-    width: 18px;
-    height: 18px;
-  }
-  .found,
-  .name-inp,
-  .label-inp {
-    flex: 1 1 100%;
-    width: 100%;
-  }
-  .label-inp,
-  .name-inp {
-    min-height: 34px;
-    font-size: 13px;
-  }
-  .del-btn {
-    margin-left: auto;
-    font-size: 20px;
-    padding: 2px 4px;
-  }
 }
 </style>
 </head>
@@ -410,10 +394,22 @@ function buildRow(item) {
   });
   del.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
 
+  /* Add-socket button ("+1") — adds another socket/label to this entry */
+  var addBtn = document.createElement("button");
+  addBtn.className = "add-btn";
+  addBtn.title     = "Weitere Steckdose/Beschriftung hinzuf\u00fcgen";
+  addBtn.textContent = "+1";
+  addBtn.addEventListener("click", function(e) {
+    e.stopPropagation();
+    sendAction({ action: "add_socket", _gi: gi });
+  });
+  addBtn.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
+
   row.appendChild(cbWrap);
   row.appendChild(found);
   row.appendChild(sep);
   row.appendChild(inp);
+  row.appendChild(addBtn);
   row.appendChild(del);
 
   /* Right-click → context menu */

@@ -395,6 +395,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False, onl
                 if "2x" in closest["type"] or closest["type"] == "2":
                     cable_label = f"{kabel_label_alpha(cnt)}/{kabel_label_alpha(cnt + 1)}"
                     kabel_typ = "2x RJ45"
+                    socket_count = 2
                     col = "green"
                     cnt += 2
                 else:
@@ -402,6 +403,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False, onl
                         continue
                     cable_label = kabel_label_alpha(cnt)
                     kabel_typ = "RJ45"
+                    socket_count = 1
                     col = "blue"
                     cnt += 1
                 annotations.append({
@@ -416,6 +418,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False, onl
                     continue
                 cable_label = kabel_label_alpha(cnt)
                 kabel_typ = None
+                socket_count = 1
                 cnt += 1
 
             annotations.append({
@@ -431,6 +434,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False, onl
                 "term": term,
                 "label": cable_label,
                 "kabel_typ": kabel_typ,
+                "socket_count": socket_count,
                 "label_bg_color": bg_hex,
                 "checked": True,
                 "_id": _new_id(),
@@ -573,12 +577,9 @@ def apply_labels(kabel_fields, terms):
             continue
         term_lower = k.get("term", "").lower()
         cnt = cnt_dict.get(term_lower, 0)
-        if k.get("kabel_typ") == "2x RJ45":
-            k["label"] = f"{kabel_label_alpha(cnt)}/{kabel_label_alpha(cnt + 1)}"
-            cnt += 2
-        else:
-            k["label"] = kabel_label_alpha(cnt)
-            cnt += 1
+        n = k.get("socket_count") or (2 if k.get("kabel_typ") == "2x RJ45" else 1)
+        k["label"] = "/".join(kabel_label_alpha(cnt + i) for i in range(n))
+        cnt += n
         cnt_dict[term_lower] = cnt
 
 
@@ -688,12 +689,8 @@ def apply_labels_with_prefix(kabel_fields, term, pattern):
             continue
         if not k.get("checked", True):
             continue
-        if k.get("kabel_typ") == "2x RJ45":
-            l1 = next(gen)
-            l2 = next(gen)
-            k["label"] = f"{l1}/{l2}"
-        else:
-            k["label"] = next(gen)
+        n = k.get("socket_count") or (2 if k.get("kabel_typ") == "2x RJ45" else 1)
+        k["label"] = "/".join(next(gen) for _ in range(n))
 
 
 def apply_labels_with_prefix_from(kabel_fields, term, start_id, pattern):
@@ -714,12 +711,8 @@ def apply_labels_with_prefix_from(kabel_fields, term, start_id, pattern):
             found_start = True
         if not found_start:
             continue
-        if k.get("kabel_typ") == "2x RJ45":
-            l1 = next(gen)
-            l2 = next(gen)
-            k["label"] = f"{l1}/{l2}"
-        else:
-            k["label"] = next(gen)
+        n = k.get("socket_count") or (2 if k.get("kabel_typ") == "2x RJ45" else 1)
+        k["label"] = "/".join(next(gen) for _ in range(n))
 
 
     """Look at ukv_text values of existing entries for `term` and return the next name
@@ -1033,7 +1026,9 @@ with st.sidebar:
                         k for k in st.session_state.kabel_fields
                         if k.get("_id") not in pending_ids
                     ]
-                    apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
+                # Always renumber on update — this also picks up any
+                # "+1" socket additions made since the last update.
+                apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
                 st.session_state.kabel_fields_snap = copy.deepcopy(st.session_state.kabel_fields)
                 st.session_state.annotations_snap  = list(st.session_state.annotations)
                 st.session_state.pdf_dirty = False
@@ -1153,6 +1148,22 @@ with st.sidebar:
                         _clear_component_states()
                         st.session_state.pdf_dirty = True
                         st.rerun()
+
+                # ── "+1" button: add another socket/label to one entry ─────
+                # Only bumps this entry's socket_count here — the actual
+                # relabeling of everything follows the usual "PDF updaten"
+                # logic (apply_labels), so numbers only shift once confirmed.
+                elif isinstance(result, dict) and result.get("action") == "add_socket":
+                    _gi = result.get("_gi")
+                    for k in st.session_state.kabel_fields:
+                        if k.get("_id") == _gi:
+                            default_count = 2 if k.get("kabel_typ") == "2x RJ45" else 1
+                            k["socket_count"] = k.get("socket_count", default_count) + 1
+                            k["kabel_typ"] = "2x RJ45"
+                            break
+                    _clear_component_states()
+                    st.session_state.pdf_dirty = True
+                    st.rerun()
 
                 else:
                     kf = st.session_state.kabel_fields
@@ -1447,6 +1458,7 @@ else:
             "term":          chosen_term,
             "label":         new_label,
             "kabel_typ":     None,
+            "socket_count":  1,
             "label_bg_color": bg_hex,
             "checked":       True,
             "is_manual":     True,
