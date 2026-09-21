@@ -258,7 +258,7 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
     pat2_short = [r"\b2x\b"]
     pat1 = [r"rj\s*45", r"rj45"]
     pat2xukv = [r"2xukv"]
-    pat2_only = [r"^2[/\\]*$"]
+    pat2_only = [r"^2(?:[/\\].*)?$"]
 
     doc = fitz.open(stream=doc_bytes, filetype="pdf")
     ukv_hits = {t.lower(): [] for t in terms}
