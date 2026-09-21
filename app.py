@@ -1150,9 +1150,9 @@ with st.sidebar:
                         st.rerun()
 
                 # ── "+1" button: add another socket/label to one entry ─────
-                # Only bumps this entry's socket_count here — the actual
-                # relabeling of everything follows the usual "PDF updaten"
-                # logic (apply_labels), so numbers only shift once confirmed.
+                # Applies immediately: bumps this entry's socket_count and
+                # renumbers the whole list right away (no need to wait for
+                # "PDF updaten").
                 elif isinstance(result, dict) and result.get("action") == "add_socket":
                     _gi = result.get("_gi")
                     for k in st.session_state.kabel_fields:
@@ -1161,6 +1161,7 @@ with st.sidebar:
                             k["socket_count"] = k.get("socket_count", default_count) + 1
                             k["kabel_typ"] = "2x RJ45"
                             break
+                    apply_labels(st.session_state.kabel_fields, st.session_state.search_terms)
                     _clear_component_states()
                     st.session_state.pdf_dirty = True
                     st.rerun()
