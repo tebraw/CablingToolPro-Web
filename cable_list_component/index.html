@@ -169,6 +169,38 @@ body {
   background: rgba(74,140,221,0.09);
   color: #fafafa;
 }
+
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+    padding-bottom: 8px;
+  }
+  .row {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 6px;
+  }
+  .cb-wrap input[type=checkbox] {
+    width: 18px;
+    height: 18px;
+  }
+  .found,
+  .name-inp,
+  .label-inp {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .label-inp,
+  .name-inp {
+    min-height: 34px;
+    font-size: 13px;
+  }
+  .del-btn {
+    margin-left: auto;
+    font-size: 20px;
+    padding: 2px 4px;
+  }
+}
 </style>
 </head>
 <body>

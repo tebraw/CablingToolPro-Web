@@ -7,7 +7,8 @@
 html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
 
 #outer {
-  position: relative; width: 100%; height: 850px;
+  position: relative; width: 100%; height: min(850px, 78vh);
+  min-height: 420px;
   overflow: hidden; background: #525659;
   border: 1px solid #333;
   cursor: grab; user-select: none;
@@ -20,6 +21,46 @@ html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
   position: absolute; bottom: 8px; right: 10px;
   color: rgba(255,255,255,0.55); font: 12px/1.4 sans-serif;
   pointer-events: none;
+}
+
+#add-pos-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 30;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font: 600 12px/1.2 "Source Sans Pro", -apple-system, sans-serif;
+  background: rgba(40, 167, 69, 0.92);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+}
+#add-pos-btn.active {
+  background: rgba(220, 53, 69, 0.92);
+}
+
+@media (max-width: 768px) {
+  #outer {
+    height: min(640px, 72vh);
+    min-height: 360px;
+    border-left: none;
+    border-right: none;
+  }
+  #zoomhint {
+    left: 8px;
+    right: 8px;
+    bottom: 6px;
+    font-size: 11px;
+    text-align: center;
+  }
+  #add-pos-btn {
+    top: 8px;
+    right: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
 }
 
 /* ── Label drag handles ───────────────────────────────────────── */
@@ -91,7 +132,8 @@ html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
   <div id="inner">
     <img id="pdfimg" draggable="false" src="">
   </div>
-  <div id="zoomhint">Strg+Mausrad zum Zoomen &nbsp;|&nbsp; Ziehen zum Verschieben &nbsp;|&nbsp; Rechtsklick → Position hinzufügen</div>
+  <button id="add-pos-btn" type="button">+ Position</button>
+  <div id="zoomhint">Strg+Mausrad zum Zoomen | Ziehen zum Verschieben | Mobil: + Position antippen</div>
 </div>
 
 <!-- Context menu -->
@@ -105,7 +147,7 @@ html, body { background: #525659; overflow: hidden; width: 100%; height: 100%; }
 
 /* ── State ───────────────────────────────────────────────────── */
 var scale = 1, tx = 0, ty = 0;
-var dragging = false, sx = 0, sy = 0, stx = 0, sty = 0;
+var dragging = false, sx = 0, sy = 0, stx = 0, sty = 0, dragPointerId = null;
 var labelDragState = null;  /* {div, id, startCX, startCY, startLeft, startTop, imgW, imgH} */
 var pendingPdfX = 0, pendingPdfY = 0;
 var currentZoom = 1.5;
@@ -113,6 +155,7 @@ var terms   = [];
 var labelHandles = [];
 var colors  = ["#ffe066","#7eeaff","#a7ef7e","#ff8cdd","#c89fff"];
 var initialized = false;
+var addModeActive = false;
 
 /* ── Streamlit bridge ────────────────────────────────────────── */
 function sendValue(v) {
@@ -136,6 +179,25 @@ var outer   = document.getElementById("outer");
 var inner   = document.getElementById("inner");
 var img     = document.getElementById("pdfimg");
 var ctxMenu = document.getElementById("ctx-menu");
+var addPosBtn = document.getElementById("add-pos-btn");
+
+function desiredViewerHeight() {
+  var vh = window.innerHeight || 900;
+  var target = Math.round(vh * 0.72);
+  return Math.max(380, Math.min(870, target));
+}
+
+function applyViewerHeight() {
+  var h = desiredViewerHeight();
+  outer.style.height = h + "px";
+  setHeight(h + 20);
+}
+
+function setAddMode(active) {
+  addModeActive = !!active;
+  addPosBtn.classList.toggle("active", addModeActive);
+  addPosBtn.textContent = addModeActive ? "Abbrechen" : "+ Position";
+}
 
 /* ── Transform ───────────────────────────────────────────────── */
 function apply() {
@@ -167,25 +229,32 @@ function initCenter() {
 }
 
 /* ── Pan ─────────────────────────────────────────────────────── */
-outer.addEventListener("mousedown", function(e) {
+outer.addEventListener("pointerdown", function(e) {
   if (e.button !== 0) return;
+  if (addModeActive) return;
   if (e.target.classList.contains("lbl-handle")) return; // don't pan when dragging a label
   dragging = true;
+  dragPointerId = e.pointerId;
+  outer.setPointerCapture(e.pointerId);
   sx = e.clientX; sy = e.clientY;
   stx = tx;       sty = ty;
   outer.classList.add("dragging");
   e.preventDefault();
 });
-window.addEventListener("mousemove", function(e) {
-  if (!dragging) return;
+outer.addEventListener("pointermove", function(e) {
+  if (!dragging || e.pointerId !== dragPointerId) return;
   tx = stx + e.clientX - sx;
   ty = sty + e.clientY - sy;
   apply();
 });
-window.addEventListener("mouseup", function() {
+function endPan(e) {
+  if (e && dragPointerId !== null && e.pointerId !== dragPointerId) return;
   dragging = false;
+  dragPointerId = null;
   outer.classList.remove("dragging");
-});
+}
+outer.addEventListener("pointerup", endPan);
+outer.addEventListener("pointercancel", endPan);
 
 /* ── Ctrl+Wheel zoom ─────────────────────────────────────────── */
 outer.addEventListener("wheel", function(e) {
@@ -252,28 +321,19 @@ function buildLabelHandles(newHandles) {
   });
 }
 
-/* ── Right-click context menu ────────────────────────────────── */
-outer.addEventListener("contextmenu", function(e) {
-  e.preventDefault();
-  if (!terms.length) return;
+function openAddMenuAt(clientX, clientY) {
+  if (!terms.length || !img.naturalWidth || !img.naturalHeight) return;
 
-  /* Convert screen coords → PDF coordinate space RIGHT NOW, at the moment of
-     the right-click, so nothing can go stale between here and the menu-item
-     click.  All three values (image bounding rect, natural dimensions, zoom)
-     are read from the live DOM/state simultaneously. */
+  /* Convert screen coords -> PDF coordinate space at interaction time. */
   var imgRect     = img.getBoundingClientRect();
   var displayScale = imgRect.width / img.naturalWidth; /* CSS px / natural px */
-  var nat_x = (e.clientX - imgRect.left) / displayScale;
-  var nat_y = (e.clientY - imgRect.top)  / displayScale;
+  var nat_x = (clientX - imgRect.left) / displayScale;
+  var nat_y = (clientY - imgRect.top)  / displayScale;
   var nat_h = img.naturalHeight;
-  /* Formula confirmed for /Rotate-90 pages:
-       pdf_x = (nat_h - nat_y) / zoom
-       pdf_y =  nat_x          / zoom  */
   pendingPdfX = (nat_h - nat_y) / currentZoom;
   pendingPdfY =  nat_x          / currentZoom;
 
-  /* Position menu near cursor */
-  var mx = e.clientX, my = e.clientY;
+  var mx = clientX, my = clientY;
   ctxMenu.style.left = mx + "px";
   ctxMenu.style.top  = my + "px";
   ctxMenu.classList.add("visible");
@@ -282,10 +342,30 @@ outer.addEventListener("contextmenu", function(e) {
   var rect = ctxMenu.getBoundingClientRect();
   if (rect.right  > window.innerWidth)  ctxMenu.style.left = (mx - rect.width)  + "px";
   if (rect.bottom > window.innerHeight) ctxMenu.style.top  = (my - rect.height) + "px";
+}
+
+/* ── Right-click context menu ────────────────────────────────── */
+outer.addEventListener("contextmenu", function(e) {
+  e.preventDefault();
+  openAddMenuAt(e.clientX, e.clientY);
+});
+
+addPosBtn.addEventListener("click", function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!terms.length) return;
+  setAddMode(!addModeActive);
+});
+
+outer.addEventListener("click", function(e) {
+  if (!addModeActive) return;
+  if (e.target.closest("#ctx-menu") || e.target.closest(".lbl-handle")) return;
+  setAddMode(false);
+  openAddMenuAt(e.clientX, e.clientY);
 });
 
 /* Close menu on any outside click */
-window.addEventListener("mousedown", function(e) {
+window.addEventListener("pointerdown", function(e) {
   if (!ctxMenu.contains(e.target)) closeMenu();
 });
 window.addEventListener("keydown", function(e) {
@@ -347,7 +427,7 @@ window.addEventListener("message", function(e) {
     img.onload = function() {
       /* Auto-center only once — initCenter retries until outer.clientWidth > 0 */
       if (!initialized) initCenter();
-      setHeight(870);
+      applyViewerHeight();
     };
     /* Fallback for immediately-complete images (rare with data URIs, but safe) */
     if (img.complete && img.naturalWidth && !initialized) {
@@ -366,8 +446,11 @@ window.addEventListener("message", function(e) {
   var newHandles = Array.isArray(args.label_handles) ? args.label_handles : [];
   buildLabelHandles(newHandles);
 
-  setHeight(870);
+  applyViewerHeight();
 });
+
+window.addEventListener("resize", applyViewerHeight);
+applyViewerHeight();
 
 window.parent.postMessage({
   isStreamlitMessage: true,

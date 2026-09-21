@@ -90,6 +90,7 @@ def _init():
         "setting_2x_short": True,
         "setting_rj45": True,
         "setting_2xukv": False,
+        "setting_2_only": False,
         "export_pdf_bytes": None,
         "search_ran": False,
         "_id_seq": 0,
@@ -187,6 +188,7 @@ def _build_project_zip():
             "setting_2x_short": st.session_state.setting_2x_short,
             "setting_rj45":     st.session_state.setting_rj45,
             "setting_2xukv":    st.session_state.setting_2xukv,
+            "setting_2_only":   st.session_state.setting_2_only,
         },
         "_id_seq": st.session_state["_id_seq"],
     }
@@ -214,6 +216,7 @@ def _load_project(zip_bytes):
     st.session_state.setting_2x_short = settings.get("setting_2x_short", True)
     st.session_state.setting_rj45     = settings.get("setting_rj45",     True)
     st.session_state.setting_2xukv    = settings.get("setting_2xukv",    False)
+    st.session_state.setting_2_only   = settings.get("setting_2_only",   False)
     # Restore ID counter so new IDs never collide with loaded ones
     existing_ids = [k.get("_id", 0) for k in st.session_state.kabel_fields]
     st.session_state["_id_seq"] = max(existing_ids + [meta.get("_id_seq", 0)])
@@ -237,11 +240,12 @@ def _clear_component_states():
 # Core search logic (ported from AcrobatViewer.search_and_highlight)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
+def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv, s2_only=False):
     pat2 = [r"2x\s*rj\s*45", r"2\s*x\s*rj\s*45", r"2xrj45", r"2 x rj45"]
     pat2_short = [r"\b2x\b"]
     pat1 = [r"rj\s*45", r"rj45"]
     pat2xukv = [r"2xukv"]
+    pat2_only = [r"^2$"]
 
     doc = fitz.open(stream=doc_bytes, filetype="pdf")
     ukv_hits = {t.lower(): [] for t in terms}
@@ -263,21 +267,23 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
                     lines.append((txt, bb, hex_c, d))
 
         rj_hits = []
-        for txt, bb, _, _d in lines:
+        for txt, bb, hex_c, _d in lines:
             norm = re.sub(r"\s+", "", txt.lower())
             if s2x and any(re.search(p, norm) for p in pat2):
-                rj_hits.append({"type": "2x RJ45", "rect": bb, "used": False, "kabel_typ": "2x RJ45"})
+                rj_hits.append({"type": "2x RJ45", "rect": bb, "used": False, "kabel_typ": "2x RJ45", "color_hex": hex_c})
             elif s2x_short and any(re.search(p, txt.lower()) for p in pat2_short):
-                rj_hits.append({"type": "2x RJ45", "rect": bb, "used": False, "kabel_typ": "2x RJ45"})
+                rj_hits.append({"type": "2x RJ45", "rect": bb, "used": False, "kabel_typ": "2x RJ45", "color_hex": hex_c})
             elif s2xukv and any(re.search(p, norm) for p in pat2xukv):
-                rj_hits.append({"type": "2x UKV", "rect": bb, "used": False, "kabel_typ": "2x RJ45"})
+                rj_hits.append({"type": "2x UKV", "rect": bb, "used": False, "kabel_typ": "2x RJ45", "color_hex": hex_c})
+            elif s2_only and any(re.search(p, norm) for p in pat2_only):
+                rj_hits.append({"type": "2", "rect": bb, "used": False, "kabel_typ": "2x RJ45", "color_hex": hex_c})
             elif (
                 s1x
                 and any(re.search(p, norm) for p in pat1)
                 and not any(re.search(p, norm) for p in pat2)
                 and not (s2xukv and any(re.search(p, norm) for p in pat2xukv))
             ):
-                rj_hits.append({"type": "RJ45", "rect": bb, "used": False, "kabel_typ": "RJ45"})
+                rj_hits.append({"type": "RJ45", "rect": bb, "used": False, "kabel_typ": "RJ45", "color_hex": hex_c})
         rj_hits_dict[pnum] = rj_hits
 
         for txt, bb, color_hex, span_dir in lines:
@@ -334,6 +340,8 @@ def search_pdf(doc_bytes, terms, s2x, s2x_short, s1x, s2xukv):
             closest, md = None, float("inf")
             for rj in rj_hits:
                 if rj["used"]:
+                    continue
+                if rj["type"] == "2" and rj.get("color_hex") != hit["color_hex"]:
                     continue
                 d = math.hypot(rj["rect"].x0 - bb.x0, rj["rect"].y0 - bb.y0)
                 if d < 70 and d < md:
@@ -885,10 +893,15 @@ with st.sidebar:
         s2xs = st.checkbox("2x erkennen", value=st.session_state.setting_2x_short, key="s2xs")
         s1x = st.checkbox("RJ 45 erkennen", value=st.session_state.setting_rj45, key="s1x")
         s2xu = st.checkbox("2x UKV erkennen", value=st.session_state.setting_2xukv, key="s2xu")
+        s2o = st.checkbox(
+            "\"2\" erkennen (nur gleiche Farbe wie Suchbegriff)",
+            value=st.session_state.setting_2_only, key="s2o",
+        )
         st.session_state.setting_2x_rj45 = s2x
         st.session_state.setting_2x_short = s2xs
         st.session_state.setting_rj45 = s1x
         st.session_state.setting_2xukv = s2xu
+        st.session_state.setting_2_only = s2o
 
     do_search = st.button("🔍 Suchen und markieren", use_container_width=True, type="primary")
 
@@ -906,6 +919,7 @@ with st.sidebar:
                     st.session_state.setting_2x_short,
                     st.session_state.setting_rj45,
                     st.session_state.setting_2xukv,
+                    st.session_state.setting_2_only,
                 )
             _clear_label_widgets()
             st.session_state.kabel_fields = kf
